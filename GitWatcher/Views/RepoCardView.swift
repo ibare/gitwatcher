@@ -1,0 +1,271 @@
+//
+//  RepoCardView.swift
+//  GitWatcher
+//
+//  리포 카드. 계층은 "지금" 우선 — 누적 스탯이 아니라 라이브 워킹트리 상태가 맨 위.
+//  worktrees.count 에 따라 degrade: 1개=플랫, N개=worktree 서브로우.
+//
+
+import SwiftUI
+
+struct RepoCardView: View {
+    let repo: RepoViewModel
+    var onOpenGraph: () -> Void
+    /// dirty worktree 의 변경 파일 diff 를 보기 위한 진입.
+    var onViewChanges: (Worktree) -> Void = { _ in }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            liveStatus
+            secondaryStats
+
+            if repo.worktrees.count > 1 {
+                Divider().opacity(0.5)
+                ForEach(repo.worktrees) { wt in
+                    WorktreeRow(worktree: wt) {
+                        if !wt.status.isClean { onViewChanges(wt) }
+                    }
+                }
+            }
+
+            if !repo.packageChanges.isEmpty {
+                PackageDistributionBar(changes: repo.packageChanges)
+            }
+
+            sparkline
+
+            Divider().opacity(0.5)
+            footer
+        }
+        .padding(16)
+        .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.cardStroke, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpenGraph)
+    }
+
+    // MARK: 헤더 — 폴더 아이콘 + 리포명 / 브랜치 pill + 상태 dot
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "folder.fill")
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(repo.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if let subtitle = repo.subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+            if case .failed = repo.loadState {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .help("Failed to read this repository")
+            } else if let wt = repo.primaryWorktree {
+                BranchPill(branch: wt.branch, detached: wt.isDetached)
+            }
+            StatusDot(isDirty: repo.isAnyDirty)
+        }
+    }
+
+    // MARK: 라이브 상태 (가장 크게)
+
+    @ViewBuilder
+    private var liveStatus: some View {
+        // 단일 worktree 면 그 상태를, 여럿이면 합산을 크게 보여준다.
+        let totals = aggregateStatus
+        if totals.changedFiles == 0 {
+            Label("clean", systemImage: "checkmark.circle.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Theme.clean)
+        } else {
+            HStack(spacing: 10) {
+                Text("\(totals.changedFiles) \(totals.changedFiles == 1 ? "file" : "files") changed")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Theme.dirty)
+                if totals.insertions > 0 || totals.deletions > 0 {
+                    HStack(spacing: 6) {
+                        Text("+\(totals.insertions)").foregroundStyle(Theme.clean)
+                        Text("−\(totals.deletions)").foregroundStyle(.red)
+                    }
+                    .font(.subheadline.monospacedDigit())
+                }
+                Spacer()
+                // 단일 worktree 면 카드 라이브 상태에서 바로 변경 diff 진입(여럿이면 서브로우에서).
+                if repo.worktrees.count == 1, let wt = repo.primaryWorktree {
+                    Button("View changes") { onViewChanges(wt) }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+        }
+    }
+
+    private var aggregateStatus: (changedFiles: Int, insertions: Int, deletions: Int) {
+        repo.worktrees.reduce(into: (0, 0, 0)) { acc, wt in
+            acc.0 += wt.status.changedFiles
+            acc.1 += wt.status.insertions
+            acc.2 += wt.status.deletions
+        }
+    }
+
+    // MARK: 보조 스탯(muted)
+
+    private var secondaryStats: some View {
+        HStack(spacing: 6) {
+            Text("\(Fmt.compact(repo.totalCommits)) commits")
+            Text("·")
+            Text("last commit \(Fmt.relative(repo.lastCommitDate))")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    // MARK: 스파크라인
+
+    @ViewBuilder
+    private var sparkline: some View {
+        let series = DailySeries.recent(repo.dailyCounts, days: 30)
+        if series.reduce(0, +) > 0 {
+            SparklineView(values: series)
+                .frame(height: 28)
+        } else {
+            Text("No recent activity")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .frame(height: 28, alignment: .center)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: 하단 — 플래그 pill + Open graph
+
+    private var footer: some View {
+        HStack {
+            ForEach(flagPills, id: \.self) { flag in
+                Text(flag)
+                    .font(.caption2.weight(.medium))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Theme.dirty.opacity(0.15), in: Capsule())
+                    .foregroundStyle(Theme.dirty)
+            }
+            Spacer()
+            Button(action: onOpenGraph) {
+                HStack(spacing: 3) {
+                    Text("Open graph")
+                    Image(systemName: "arrow.right")
+                }
+                .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.accent)
+        }
+    }
+
+    /// 예: "web: 3 uncommitted" — worktree 가 여럿이면 dirty 한 것만 플래그로.
+    private var flagPills: [String] {
+        guard repo.worktrees.count > 1 else { return [] }
+        return repo.worktrees
+            .filter { !$0.status.isClean }
+            .map { "\($0.branch): \($0.status.changedFiles) uncommitted" }
+    }
+}
+
+// MARK: - 서브 컴포넌트
+
+private struct BranchPill: View {
+    let branch: String
+    let detached: Bool
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: detached ? "scissors" : "arrow.triangle.branch")
+                .font(.caption2)
+            Text(branch).lineLimit(1)
+        }
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Theme.accent.opacity(0.12), in: Capsule())
+        .foregroundStyle(Theme.accent)
+    }
+}
+
+private struct StatusDot: View {
+    let isDirty: Bool
+    var body: some View {
+        Circle()
+            .fill(isDirty ? Theme.dirty : Theme.clean)
+            .frame(width: 9, height: 9)
+            .help(isDirty ? "dirty" : "clean")
+    }
+}
+
+private struct WorktreeRow: View {
+    let worktree: Worktree
+    var onTap: () -> Void = {}
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: worktree.isMainWorktree ? "house" : "arrow.triangle.branch")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(worktree.branch)
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+
+            if worktree.status.isClean {
+                Text("clean").font(.caption2).foregroundStyle(Theme.clean)
+            } else {
+                Text("\(worktree.status.changedFiles) changed")
+                    .font(.caption2).foregroundStyle(Theme.dirty)
+            }
+
+            Spacer()
+
+            if let d = worktree.divergence, d.isDiverged {
+                Text("\(d.ahead)↑ \(d.behind)↓ vs \(d.trunk)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(Theme.diverged)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+        .help(worktree.status.isClean ? worktree.path : "Click to view changes")
+    }
+}
+
+private struct PackageDistributionBar: View {
+    let changes: [PackageChange]
+    private var total: Int { max(changes.reduce(0) { $0 + $1.changedFiles }, 1) }
+
+    private let palette: [Color] = [.indigo, .blue, .teal, .purple, .pink, .orange]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            GeometryReader { geo in
+                HStack(spacing: 1) {
+                    ForEach(Array(changes.prefix(6).enumerated()), id: \.element.id) { idx, change in
+                        Rectangle()
+                            .fill(palette[idx % palette.count])
+                            .frame(width: max(geo.size.width * CGFloat(change.changedFiles) / CGFloat(total), 2))
+                    }
+                }
+            }
+            .frame(height: 6)
+            .clipShape(Capsule())
+
+            // 범례(상위 3개)
+            HStack(spacing: 8) {
+                ForEach(Array(changes.prefix(3).enumerated()), id: \.element.id) { idx, change in
+                    HStack(spacing: 3) {
+                        Circle().fill(palette[idx % palette.count]).frame(width: 6, height: 6)
+                        Text("\(change.name) \(change.changedFiles)")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+        }
+    }
+}
