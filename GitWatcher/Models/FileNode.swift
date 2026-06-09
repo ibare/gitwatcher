@@ -59,11 +59,16 @@ final class FileNode: Identifiable {
             let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             entries.append(RawEntry(url: u, isDir: isDir))
         }
-        return entries.sorted { a, b in
+        let sorted = entries.sorted { a, b in
             if a.isDir != b.isDir { return a.isDir }   // 폴더 먼저
             return a.url.lastPathComponent.localizedStandardCompare(b.url.lastPathComponent) == .orderedAscending
         }
+        // node_modules/.pnpm 등 초대형 디렉토리에서 트리가 멈추지 않도록 상한.
+        return sorted.count > maxChildren ? Array(sorted.prefix(maxChildren)) : sorted
     }
+
+    /// 한 디렉토리에 표시할 최대 자식 수(성능 가드).
+    private nonisolated static let maxChildren = 1000
 
     /// 트리에서 숨길 항목(코드 에디터 관행). 추후 토글 옵션으로 노출 가능.
     private nonisolated static let hiddenNames: Set<String> = [".git", ".DS_Store"]

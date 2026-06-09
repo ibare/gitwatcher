@@ -65,6 +65,7 @@ struct CommitGraphView: View {
                     .frame(height: canvasHeight, alignment: .topLeading)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .overlayScrollbars()
                 .focusable()
                 .onMoveCommand { move($0, proxy: proxy) }
             }

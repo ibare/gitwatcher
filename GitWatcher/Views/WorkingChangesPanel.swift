@@ -81,6 +81,7 @@ struct WorkingChangesPanel: View {
                     .tag(file.path)
                 }
                 .listStyle(.inset)
+                .overlayScrollbars()
             }
         }
     }

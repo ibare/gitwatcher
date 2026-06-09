@@ -86,6 +86,12 @@ struct DiffWebView: NSViewRepresentable {
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; }
+      /* 얇은 반투명 스크롤바 */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.30); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.50); }
+      ::-webkit-scrollbar-corner { background: transparent; }
       html, body { margin: 0; padding: 0;
         font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
         background: transparent;

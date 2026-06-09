@@ -53,6 +53,7 @@ struct DashboardView: View {
                 }
                 .padding(20)
             }
+            .overlayScrollbars()
             .navigationTitle("Git Watcher")
             .toolbar {
                 if !store.repos.isEmpty {

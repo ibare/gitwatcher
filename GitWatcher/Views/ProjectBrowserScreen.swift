@@ -147,6 +147,7 @@ struct FileTreeView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Theme.editorSidebar)
+        .overlayScrollbars()
     }
 }
 
@@ -156,6 +157,7 @@ private struct FileTreeRow: View {
 
     var body: some View {
         if node.isDirectory {
+            // 폴더는 selection 대상이 아니라 펼침 전용(tag 없음) — 클릭하면 펼침/접힘.
             DisclosureGroup(isExpanded: $node.isExpanded) {
                 if let children = node.children {
                     ForEach(children) { child in
@@ -166,8 +168,9 @@ private struct FileTreeRow: View {
                 Label(node.name, systemImage: node.isExpanded ? "folder.fill" : "folder")
                     .foregroundStyle(Theme.accent)
                     .lineLimit(1)
+                    .contentShape(Rectangle())
+                    .onTapGesture { node.isExpanded.toggle() }
             }
-            .tag(node.url)
             .onChange(of: node.isExpanded) { _, expanded in
                 if expanded { Task { await node.loadChildrenIfNeeded() } }
             }

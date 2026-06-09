@@ -73,6 +73,12 @@ struct FileViewerWebView: NSViewRepresentable {
         <style>
           \(themeCSS)
           * { box-sizing: border-box; }
+          /* 얇은 반투명 스크롤바 */
+          ::-webkit-scrollbar { width: 8px; height: 8px; }
+          ::-webkit-scrollbar-track { background: transparent; }
+          ::-webkit-scrollbar-thumb { background: rgba(171,178,191,0.22); border-radius: 4px; }
+          ::-webkit-scrollbar-thumb:hover { background: rgba(171,178,191,0.40); }
+          ::-webkit-scrollbar-corner { background: transparent; }
           /* 코드 뷰어는 항상 atom-one-dark 다크 고정 */
           html, body { margin: 0; padding: 0; background: #282c34; color: #abb2bf; }
           pre { margin: 0; }

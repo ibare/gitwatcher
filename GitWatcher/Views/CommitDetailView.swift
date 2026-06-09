@@ -92,6 +92,7 @@ struct CommitDetailView: View {
                     .tag(file.path)
                 }
                 .listStyle(.inset)
+                .overlayScrollbars()
             }
         }
         .onChange(of: selectedPath) { _, _ in Task { await loadDiff() } }

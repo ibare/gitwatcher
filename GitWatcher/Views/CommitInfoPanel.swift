@@ -142,6 +142,7 @@ struct CommitInfoPanel: View {
                     .tag(file.path)
                 }
                 .listStyle(.inset)
+                .overlayScrollbars()
             }
         }
     }
@@ -186,6 +187,7 @@ struct CommitInfoPanel: View {
                     .tag(c.sha)
                 }
                 .listStyle(.inset)
+                .overlayScrollbars()
             }
         }
     }
