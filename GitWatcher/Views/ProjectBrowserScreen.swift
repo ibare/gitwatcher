@@ -27,6 +27,12 @@ struct ProjectBrowserScreen: View {
 
     private static let maxBytes = 2_000_000   // 2MB 초과 텍스트는 표시 생략
 
+    /// 타이틀바 서브타이틀에 표시할 현재 브랜치(⎇ main 형태).
+    private var branchSubtitle: String {
+        guard let branch = repo.primaryWorktree?.branch, !branch.isEmpty else { return "" }
+        return "⎇ \(branch)"
+    }
+
     var body: some View {
         HSplitView {
             Group {
@@ -55,6 +61,7 @@ struct ProjectBrowserScreen: View {
         .background(Theme.editorBackground)
         .environment(\.colorScheme, .dark)   // 코드 에디터처럼 화면 전체 다크 고정
         .navigationTitle(repo.displayName)
+        .navigationSubtitle(branchSubtitle)
         .task { await loadRoot() }
         .task(id: selection) { await loadFile() }
     }
