@@ -11,6 +11,7 @@ import SwiftUI
 struct RepoCardView: View {
     let repo: RepoViewModel
     var onOpenGraph: () -> Void
+    var onOpenProject: () -> Void = {}
     /// dirty worktree 의 변경 파일 diff 를 보기 위한 진입.
     var onViewChanges: (Worktree) -> Void = { _ in }
 
@@ -148,10 +149,10 @@ struct RepoCardView: View {
         }
     }
 
-    // MARK: 하단 — 플래그 pill + Open graph
+    // MARK: 하단 — 플래그 pill + Open project / Open graph
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 10) {
             ForEach(flagPills, id: \.self) { flag in
                 Text(flag)
                     .font(.caption2.weight(.medium))
@@ -160,6 +161,15 @@ struct RepoCardView: View {
                     .foregroundStyle(Theme.dirty)
             }
             Spacer()
+            Button(action: onOpenProject) {
+                HStack(spacing: 3) {
+                    Image(systemName: "folder")
+                    Text("Open project")
+                }
+                .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.accent)
             Button(action: onOpenGraph) {
                 HStack(spacing: 3) {
                     Text("Open graph")

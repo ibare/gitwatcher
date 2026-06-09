@@ -62,6 +62,10 @@ enum Theme {
     static let cardBackground = Color(nsColor: .controlBackgroundColor)
     static let cardStroke = Color.primary.opacity(0.08)
 
+    // atom-one-dark 톤 — 파일 탐색기(다크 고정) 배경
+    static let editorBackground = Color(red: 40/255, green: 44/255, blue: 52/255)   // #282c34
+    static let editorSidebar = Color(red: 33/255, green: 37/255, blue: 43/255)      // #21252b
+
     /// 히트맵/스파크라인 강도 색(accent 기반 단계).
     static func heatColor(intensity: Double) -> Color {
         // intensity 0...1

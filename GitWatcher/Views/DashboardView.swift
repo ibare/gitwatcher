@@ -9,9 +9,15 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// 드릴다운 목적지. 커밋 그래프 / 파일 탐색기.
+enum RepoRoute: Hashable {
+    case graph(UUID)
+    case files(UUID)
+}
+
 struct DashboardView: View {
     @Environment(RepoStore.self) private var store
-    @State private var path: [UUID] = []
+    @State private var path: [RepoRoute] = []
     @State private var showImporter = false
     @State private var workingContext: DiffContext?
 
@@ -27,7 +33,9 @@ struct DashboardView: View {
                     } else {
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(store.sortedRepos) { repo in
-                                RepoCardView(repo: repo, onOpenGraph: { path.append(repo.id) },
+                                RepoCardView(repo: repo,
+                                             onOpenGraph: { path.append(.graph(repo.id)) },
+                                             onOpenProject: { path.append(.files(repo.id)) },
                                              onViewChanges: { wt in
                                     workingContext = .working(repoName: repo.displayName,
                                                               worktreePath: wt.path,
@@ -67,11 +75,20 @@ struct DashboardView: View {
                     }
                 }
             }
-            .navigationDestination(for: UUID.self) { id in
-                if let repo = store.repos.first(where: { $0.id == id }) {
-                    RepoGraphScreen(repo: repo)
-                } else {
-                    Text("Repository not found").foregroundStyle(.secondary)
+            .navigationDestination(for: RepoRoute.self) { route in
+                switch route {
+                case .graph(let id):
+                    if let repo = store.repos.first(where: { $0.id == id }) {
+                        RepoGraphScreen(repo: repo)
+                    } else {
+                        Text("Repository not found").foregroundStyle(.secondary)
+                    }
+                case .files(let id):
+                    if let repo = store.repos.first(where: { $0.id == id }) {
+                        ProjectBrowserScreen(repo: repo)
+                    } else {
+                        Text("Repository not found").foregroundStyle(.secondary)
+                    }
                 }
             }
             .fileImporter(
