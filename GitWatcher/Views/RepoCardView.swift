@@ -30,10 +30,8 @@ struct RepoCardView: View {
                 }
             }
 
+            // 남는 공간을 커밋 목록으로 채운다(가용 높이만큼 개수 자동 산정 → 카드별 빈공간 최소화).
             recentCommits
-
-            // 같은 행의 카드를 가장 큰 카드 높이로 맞추고 footer 를 바닥에 정렬한다.
-            Spacer(minLength: 0)
 
             Divider().opacity(0.5)
             footer
@@ -125,13 +123,22 @@ struct RepoCardView: View {
         .foregroundStyle(.secondary)
     }
 
-    // MARK: 최근 커밋 10개 (상대 날짜 + 메시지, 한 줄 말줄임)
+    // MARK: 최근 커밋 (상대 날짜 + 메시지, 한 줄 말줄임)
+    //  카드의 남는 세로 공간을 측정해 잘리지 않을 만큼만 표시한다.
 
-    @ViewBuilder
+    /// 한 커밋 행이 차지하는 세로 크기(행 높이 + VStack spacing). 보수적으로 잡아 잘림 방지.
+    private static let commitRowUnit: CGFloat = 18
+    /// 커밋 영역의 최소 높이 — 카드 기본 높이 확보용(커밋이 적으면 그만큼만).
+    private var minCommitAreaHeight: CGFloat {
+        CGFloat(min(5, repo.commits.count)) * Self.commitRowUnit
+    }
+
     private var recentCommits: some View {
-        if !repo.commits.isEmpty {
+        GeometryReader { geo in
+            // 가용 높이로 표시 가능한 행 수 산정(spacing 보정 후 내림).
+            let count = max(0, Int((geo.size.height + 5) / Self.commitRowUnit))
             VStack(alignment: .leading, spacing: 5) {
-                ForEach(repo.commits.prefix(10)) { commit in
+                ForEach(repo.commits.prefix(count)) { commit in
                     HStack(spacing: 8) {
                         Text(Fmt.relative(commit.date))
                             .font(.caption2.monospacedDigit())
@@ -145,7 +152,9 @@ struct RepoCardView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(minHeight: minCommitAreaHeight, maxHeight: .infinity)
     }
 
     // MARK: 하단 — Open project / Open graph
