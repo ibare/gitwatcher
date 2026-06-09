@@ -28,6 +28,8 @@ struct ProjectBrowserScreen: View {
     @State private var selectedWorktreePath: String?
     /// 트리 사이드바 폭 — 마지막 조정값을 유지(앱 재시작에도 보존).
     @AppStorage("ProjectBrowser.sidebarWidth") private var sidebarWidth: Double = 300
+    /// 마크다운 파일을 렌더링 프리뷰로 볼지(코드 보기와 토글). 기본 프리뷰.
+    @State private var markdownPreview = true
 
     private static let sidebarMinWidth: Double = 180
     private static let sidebarMaxWidth: Double = 640
@@ -131,16 +133,32 @@ struct ProjectBrowserScreen: View {
                 .foregroundStyle(.secondary)
             Text(rel).font(.callout).lineLimit(1).truncationMode(.middle)
             Spacer()
+            if Self.isMarkdown(url) {
+                PillSegmentedControl(
+                    options: [.init(value: false, title: "Code"),
+                              .init(value: true, title: "Preview")],
+                    selection: $markdownPreview
+                )
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(Color.primary.opacity(0.03))
+    }
+
+    private static let markdownExts: Set<String> = ["md", "markdown", "mdown", "mkd", "markdn"]
+    private static func isMarkdown(_ url: URL) -> Bool {
+        markdownExts.contains(url.pathExtension.lowercased())
     }
 
     @ViewBuilder
     private var fileViewer: some View {
         switch content {
         case .text(let code, let lang):
-            FileViewerWebView(code: code, language: lang)
+            if let url = selection, Self.isMarkdown(url), markdownPreview {
+                MarkdownWebView(markdown: code)
+            } else {
+                FileViewerWebView(code: code, language: lang)
+            }
         case .image(let url):
             ScrollView([.horizontal, .vertical]) {
                 if let img = NSImage(contentsOf: url) {
