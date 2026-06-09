@@ -42,8 +42,7 @@ struct RepoCardView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.cardStroke, lineWidth: 1))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onOpenGraph)
+        .contentShape(Rectangle())   // 우클릭 컨텍스트 메뉴 영역(카드 탭 진입은 버튼으로만)
     }
 
     // MARK: 헤더 — 폴더 아이콘 + 리포명 / 브랜치 pill + 상태 dot
@@ -149,46 +148,18 @@ struct RepoCardView: View {
         }
     }
 
-    // MARK: 하단 — 플래그 pill + Open project / Open graph
+    // MARK: 하단 — Open project / Open graph
 
     private var footer: some View {
         HStack(spacing: 10) {
-            ForEach(flagPills, id: \.self) { flag in
-                Text(flag)
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Theme.dirty.opacity(0.15), in: Capsule())
-                    .foregroundStyle(Theme.dirty)
-            }
             Spacer()
-            Button(action: onOpenProject) {
-                HStack(spacing: 3) {
-                    Image(systemName: "folder")
-                    Text("Open project")
-                }
-                .font(.caption.weight(.medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.accent)
-            Button(action: onOpenGraph) {
-                HStack(spacing: 3) {
-                    Text("Open graph")
-                    Image(systemName: "arrow.right")
-                }
-                .font(.caption.weight(.medium))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.accent)
+            Button("Project", action: onOpenProject)
+                .buttonStyle(CardActionButtonStyle())
+            Button("Graph", action: onOpenGraph)
+                .buttonStyle(CardActionButtonStyle())
         }
     }
 
-    /// 예: "web: 3 uncommitted" — worktree 가 여럿이면 dirty 한 것만 플래그로.
-    private var flagPills: [String] {
-        guard repo.worktrees.count > 1 else { return [] }
-        return repo.worktrees
-            .filter { !$0.status.isClean }
-            .map { "\($0.branch): \($0.status.changedFiles) uncommitted" }
-    }
 }
 
 // MARK: - 서브 컴포넌트
@@ -249,5 +220,34 @@ private struct WorktreeRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .help(worktree.status.isClean ? worktree.path : "Click to view changes")
+    }
+}
+
+// MARK: - 카드 액션 버튼 스타일 (hover/press 인터랙션)
+
+struct CardActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Label_(configuration: configuration)
+    }
+
+    private struct Label_: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        var body: some View {
+            configuration.label
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(
+                        Theme.accent.opacity(configuration.isPressed ? 0.22 : (hovering ? 0.12 : 0))
+                    )
+                )
+                .contentShape(Capsule())
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+                .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+        }
     }
 }
