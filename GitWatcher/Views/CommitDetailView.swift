@@ -36,7 +36,7 @@ struct CommitDetailView: View {
             HSplitView {
                 fileList
                     .frame(minWidth: 180, idealWidth: 230, maxWidth: 360)
-                DiffWebView(diffText: diffText)
+                DiffWebView(content: .diff(diffText))
                     .frame(minWidth: 300)
                     .overlay(alignment: .topTrailing) {
                         if loadingDiff { ProgressView().controlSize(.small).padding(8) }

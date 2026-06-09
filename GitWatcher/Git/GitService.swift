@@ -308,6 +308,43 @@ nonisolated enum GitService {
         try await GitRunner.run(.diffTree, ["-p", "--no-commit-id", sha, "--", path], in: repoPath)
     }
 
+    /// 커밋 시점의 파일 전체 내용: show <sha>:<path> (blob). File View 용.
+    nonisolated static func commitFileContent(repoPath: String, sha: String, path: String) async throws -> String {
+        try await GitRunner.run(.show, ["\(sha):\(path)"], in: repoPath)
+    }
+
+    /// unified diff 에서 추가/수정된 줄의 "새 파일 기준" 라인 번호 집합.
+    /// File View 에서 해당 줄 배경을 강조하는 데 쓴다.
+    nonisolated static func addedLineNumbers(inDiff diff: String) -> [Int] {
+        var result: [Int] = []
+        var newLine = 0
+        for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw)
+            if line.hasPrefix("@@") {
+                // @@ -a,b +c,d @@ → 새 파일 시작 줄 c
+                if let plus = line.firstIndex(of: "+") {
+                    let after = line[line.index(after: plus)...]
+                    let digits = after.prefix { $0.isNumber }
+                    newLine = Int(digits) ?? newLine
+                }
+                continue
+            }
+            if line.hasPrefix("+++") || line.hasPrefix("---")
+                || line.hasPrefix("diff ") || line.hasPrefix("index ")
+                || line.hasPrefix("\\") {   // "\ No newline at end of file"
+                continue
+            }
+            if line.hasPrefix("+") {
+                result.append(newLine); newLine += 1
+            } else if line.hasPrefix("-") {
+                // 삭제 줄은 새 파일에 존재하지 않으므로 라인 번호 증가 없음
+            } else {
+                newLine += 1   // context
+            }
+        }
+        return result
+    }
+
     /// 워킹트리 한 파일 diff: diff HEAD -- <path>
     nonisolated static func workingFileDiff(worktreePath: String, path: String) async throws -> String {
         try await GitRunner.run(.diff, ["HEAD", "--", path], in: worktreePath)

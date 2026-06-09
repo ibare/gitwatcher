@@ -2,8 +2,9 @@
 //  DiffOverlayView.swift
 //  GitWatcher
 //
-//  파일 선택 시 좌측 그래프 영역을 덮는 diff 오버레이. 상단 바(파일 경로 + 닫기)와
-//  웜 WKWebView diff 뷰어로 구성. 닫으면 그래프로 복귀한다.
+//  파일 선택 시 좌측 그래프 영역을 덮는 diff 오버레이. 상단 바(파일 경로 + 뷰 전환 + 닫기)와
+//  웜 WKWebView 뷰어로 구성. Diff View(변경분) ↔ File View(전체 + 추가줄 강조) 전환.
+//  닫으면 그래프로 복귀한다.
 //
 
 import SwiftUI
@@ -14,33 +15,65 @@ struct DiffOverlayView: View {
     let path: String
     var onClose: () -> Void
 
+    enum ViewMode: Hashable { case diff, file }
+
+    @State private var mode: ViewMode = .diff
     @State private var diffText: String = ""
+    @State private var addedLines: [Int] = []
+    @State private var fileText: String = ""
     @State private var loading = false
+
+    private var content: DiffWebView.Content {
+        switch mode {
+        case .diff: return .diff(diffText)
+        case .file: return .file(text: fileText, added: addedLines)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
             Divider()
-            DiffWebView(diffText: diffText)
+            DiffWebView(content: content)
                 .overlay(alignment: .center) {
                     if loading { ProgressView().controlSize(.small) }
                 }
         }
         .background(Color(nsColor: .textBackgroundColor))   // 그래프를 완전히 가린다
-        .task(id: path) { await loadDiff() }
+        .task(id: path) {
+            // 파일이 바뀌면 diff 를 로드하고(추가줄 추출), File View 면 본문도 로드.
+            fileText = ""
+            await loadDiff()
+            if mode == .file { await loadFile() }
+        }
+        .onChange(of: mode) { _, newMode in
+            if newMode == .file && fileText.isEmpty {
+                Task { await loadFile() }
+            }
+        }
     }
 
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "doc.text")
                 .foregroundStyle(.secondary)
-            // 디렉토리는 흐리게, 파일명은 강조
             (Text(directory).foregroundStyle(.secondary)
              + Text(fileName).foregroundStyle(.primary).fontWeight(.semibold))
                 .font(.callout)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
             Spacer(minLength: 8)
+
+            Picker("", selection: $mode) {
+                Text("Diff").tag(ViewMode.diff)
+                Text("File").tag(ViewMode.file)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help("Diff View: 변경분만 · File View: 전체 + 변경줄 강조")
+
             Button {
                 onClose()
             } label: {
@@ -48,7 +81,7 @@ struct DiffOverlayView: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.cancelAction)
-            .help("Close diff")
+            .help("Close")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -64,6 +97,14 @@ struct DiffOverlayView: View {
     private func loadDiff() async {
         loading = true
         defer { loading = false }
-        diffText = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: commit.sha, path: path)) ?? ""
+        let d = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: commit.sha, path: path)) ?? ""
+        diffText = d
+        addedLines = GitService.addedLineNumbers(inDiff: d)
+    }
+
+    private func loadFile() async {
+        loading = true
+        defer { loading = false }
+        fileText = (try? await GitService.commitFileContent(repoPath: repoPath, sha: commit.sha, path: path)) ?? ""
     }
 }
