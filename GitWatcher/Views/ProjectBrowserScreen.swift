@@ -24,27 +24,60 @@ struct ProjectBrowserScreen: View {
     @State private var selection: URL?
     @State private var content: LoadedFile?
     @State private var trackedIndex: TrackedIndex?
+    /// 탐색 대상 worktree 경로. nil 이면 메인 worktree.
+    @State private var selectedWorktreePath: String?
+    /// 트리 사이드바 폭 — 마지막 조정값을 유지(앱 재시작에도 보존).
+    @AppStorage("ProjectBrowser.sidebarWidth") private var sidebarWidth: Double = 300
+
+    private static let sidebarMinWidth: Double = 180
+    private static let sidebarMaxWidth: Double = 640
 
     private static let maxBytes = 2_000_000   // 2MB 초과 텍스트는 표시 생략
 
+    /// worktree 선택 메뉴에 표시할 목록 — 메인 먼저, 그다음 이름순.
+    private var worktrees: [Worktree] {
+        repo.worktrees.sorted { a, b in
+            if a.isMainWorktree != b.isMainWorktree { return a.isMainWorktree }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+
+    /// 현재 트리 루트로 쓰는 worktree 경로.
+    private var currentPath: String {
+        selectedWorktreePath ?? repo.primaryWorktree?.path ?? repo.path
+    }
+
+    /// 현재 선택된 worktree 모델(있으면).
+    private var currentWorktree: Worktree? {
+        repo.worktrees.first { $0.path == currentPath }
+    }
+
     /// 타이틀바 서브타이틀에 표시할 현재 브랜치(⎇ main 형태).
     private var branchSubtitle: String {
-        guard let branch = repo.primaryWorktree?.branch, !branch.isEmpty else { return "" }
+        guard let branch = currentWorktree?.branch ?? repo.primaryWorktree?.branch,
+              !branch.isEmpty else { return "" }
         return "⎇ \(branch)"
     }
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             Group {
                 if let root {
                     FileTreeView(root: root, selection: $selection)
                         .environment(\.trackedIndex, trackedIndex)
-                        .environment(\.repoRootPath, repo.path)
+                        .environment(\.repoRootPath, currentPath)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(minWidth: 220, idealWidth: 300, maxHeight: .infinity)
+            .frame(width: sidebarWidth)
+            .frame(maxHeight: .infinity)
+
+            ResizableDivider(
+                width: $sidebarWidth,
+                minWidth: Self.sidebarMinWidth,
+                maxWidth: Self.sidebarMaxWidth
+            )
 
             VStack(spacing: 0) {
                 if let url = selection, !isDirectory(url) {
@@ -54,7 +87,7 @@ struct ProjectBrowserScreen: View {
                 fileViewer
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(minWidth: 360, maxHeight: .infinity)
+            .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.editorBackground)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,13 +95,37 @@ struct ProjectBrowserScreen: View {
         .environment(\.colorScheme, .dark)   // 코드 에디터처럼 화면 전체 다크 고정
         .navigationTitle(repo.displayName)
         .navigationSubtitle(branchSubtitle)
-        .task { await loadRoot() }
+        .toolbar {
+            if worktrees.count > 1 {
+                ToolbarItem(placement: .primaryAction) {
+                    PillSegmentedControl(options: worktreeOptions, selection: worktreeSelection)
+                }
+            }
+        }
+        .task(id: currentPath) { await loadRoot() }
         .task(id: selection) { await loadFile() }
+    }
+
+    /// worktree 전환 세그먼트의 항목 — 디렉토리명으로 표시.
+    private var worktreeOptions: [PillSegmentedControl<String>.Option] {
+        worktrees.map { .init(value: $0.path, title: $0.name) }
+    }
+
+    /// 세그먼트 선택 바인딩 — 바뀌면 트리 루트 worktree 를 교체하고 파일 선택을 초기화.
+    private var worktreeSelection: Binding<String> {
+        Binding(
+            get: { currentPath },
+            set: { newPath in
+                guard newPath != currentPath else { return }
+                selectedWorktreePath = newPath
+                selection = nil
+            }
+        )
     }
 
     private func fileHeader(_ url: URL) -> some View {
         let rel = url.path(percentEncoded: false)
-            .replacingOccurrences(of: repo.path + "/", with: "")
+            .replacingOccurrences(of: currentPath + "/", with: "")
         return HStack(spacing: 6) {
             Image(systemName: FileIcon.symbol(for: url.lastPathComponent))
                 .foregroundStyle(.secondary)
@@ -113,12 +170,18 @@ struct ProjectBrowserScreen: View {
     private static let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "heic", "webp"]
 
     private func loadRoot() async {
-        guard root == nil else { return }
-        let r = FileNode(url: URL(fileURLWithPath: repo.path), isDirectory: true)
+        let path = currentPath
+        // worktree 전환 시 즉시 스피너를 보이도록 트리를 비운다.
+        root = nil
+        trackedIndex = nil
+        selection = nil
+        let r = FileNode(url: URL(fileURLWithPath: path), isDirectory: true)
         await r.loadChildrenIfNeeded()
         r.isExpanded = true
+        // 로드 도중 worktree 가 또 바뀌었으면 결과 폐기.
+        guard path == currentPath else { return }
         root = r
-        trackedIndex = try? await GitService.trackedIndex(repoPath: repo.path)
+        trackedIndex = try? await GitService.trackedIndex(repoPath: path)
     }
 
     private func loadFile() async {
@@ -140,6 +203,37 @@ struct ProjectBrowserScreen: View {
             return .text(text, language: CodeLanguage.hljsName(for: url.lastPathComponent))
         }.value
         content = loaded
+    }
+}
+
+// MARK: - 리사이즈 가능한 구분선
+
+/// 좌측 사이드바 폭을 드래그로 조정하는 분할선. 폭은 호출부에서 영속화한다.
+private struct ResizableDivider: View {
+    @Binding var width: Double
+    let minWidth: Double
+    let maxWidth: Double
+
+    @State private var dragBase: Double?
+
+    var body: some View {
+        ZStack {
+            Color.clear.frame(width: 10).contentShape(Rectangle())
+            Rectangle().fill(Color.primary.opacity(0.10)).frame(width: 1)
+        }
+        .frame(maxHeight: .infinity)
+        .onHover { inside in
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    let base = dragBase ?? width
+                    if dragBase == nil { dragBase = width }
+                    width = min(max(base + value.translation.width, minWidth), maxWidth)
+                }
+                .onEnded { _ in dragBase = nil }
+        )
     }
 }
 
