@@ -26,7 +26,7 @@ nonisolated enum GitService {
     // MARK: - 리포 전체 스냅샷
 
     /// 카드 한 장을 채우는 데 필요한 모든 질의를 모아 실행한다.
-    nonisolated static func snapshot(repoPath: String) async throws -> RepoSnapshot {
+    nonisolated static func snapshot(repoPath: String, commitLimit: Int = commitPageSize) async throws -> RepoSnapshot {
         // worktree 열거 (어떤 리포에서든 ≥1개)
         let wtInfos = try await worktreeList(repoPath: repoPath)
         let trunk = try? await detectTrunk(repoPath: repoPath)
@@ -51,7 +51,9 @@ nonisolated enum GitService {
             ))
         }
 
-        let (commits, total, last) = try await commitLog(repoPath: repoPath)
+        let commits = try await commitLog(repoPath: repoPath, limit: commitLimit)
+        let total = try await commitCount(repoPath: repoPath)
+        let last = commits.first?.date   // date-order 라 첫 항목이 최신 커밋
         let refs = try await refList(repoPath: repoPath)
 
         return RepoSnapshot(
@@ -217,23 +219,34 @@ nonisolated enum GitService {
 
     // MARK: - 커밋 로그 (그래프 + 스파크라인 + 스탯)
 
-    /// log --all. (그래프 커밋, 총 커밋 수, 마지막 커밋 시각)
-    nonisolated static func commitLog(repoPath: String, limit: Int? = nil) async throws -> ([GraphCommit], Int, Date?) {
+    /// 그래프 페이지 한 번에 읽는 커밋 수.
+    static let commitPageSize = 100
+
+    /// log --all 의 한 페이지. skip/limit 로 무한 스크롤 페이징을 지원한다.
+    /// date-order 라 skip 경계가 안정적이다(새 커밋은 refresh 로 처리).
+    nonisolated static func commitLog(repoPath: String, skip: Int = 0, limit: Int = commitPageSize) async throws -> [GraphCommit] {
         var args = ["--all", "--date-order",
                     "--pretty=format:%H\(unit)%P\(unit)%an\(unit)%aI\(unit)%s"]
-        if let limit { args.append("--max-count=\(limit)") }
+        if skip > 0 { args.append("--skip=\(skip)") }
+        args.append("--max-count=\(limit)")
 
-        let out: String
         do {
-            out = try await GitRunner.run(.log, args, in: repoPath)
+            let out = try await GitRunner.run(.log, args, in: repoPath)
+            return parseCommits(out)
         } catch GitError.nonZeroExit {
             // 커밋이 하나도 없는 리포(unborn HEAD)는 log 가 실패한다 → 빈 결과.
-            return ([], 0, nil)
+            return []
         }
+    }
 
-        let commits = parseCommits(out)
-        let last = commits.map(\.date).max()
-        return (commits, commits.count, last)
+    /// 전체 커밋 수(rev-list --all --count). 페이징 hasMore 판정에 쓴다.
+    nonisolated static func commitCount(repoPath: String) async throws -> Int {
+        do {
+            let out = try await GitRunner.run(.revList, ["--all", "--count"], in: repoPath)
+            return Int(out.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        } catch GitError.nonZeroExit {
+            return 0
+        }
     }
 
     /// 한 파일의 변경 히스토리: log --follow <sha> -- <path> (rename 추적, sha 기준 과거로).

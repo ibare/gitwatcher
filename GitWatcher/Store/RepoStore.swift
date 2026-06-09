@@ -52,6 +52,10 @@ final class RepoViewModel: Identifiable {
     var lastCommitDate: Date?
     var trunk: String?
 
+    /// 그래프 무한 스크롤: 추가 페이지 로드 중 여부.
+    var isLoadingMoreCommits = false
+    /// 아직 로드하지 않은 과거 커밋이 남아 있는지.
+    var hasMoreCommits: Bool { commits.count < totalCommits }
 
     var loadState: LoadState = .idle
 
@@ -175,11 +179,13 @@ final class RepoStore {
         for vm in repos { startWatching(vm) }
     }
 
-    /// 한 리포의 라이브 상태 + 그래프 + 스파크라인을 갱신한다.
+    /// 한 리포의 라이브 상태 + 그래프를 갱신한다.
+    /// 이미 추가 페이지를 로드해 둔 상태면 그 길이를 유지해 스크롤 위치가 튀지 않게 한다.
     func refresh(_ vm: RepoViewModel) async {
         if vm.loadState == .idle { vm.loadState = .loading }
         do {
-            let snap = try await GitService.snapshot(repoPath: vm.path)
+            let want = max(GitService.commitPageSize, vm.commits.count)
+            let snap = try await GitService.snapshot(repoPath: vm.path, commitLimit: want)
             vm.worktrees = snap.worktrees
             vm.commits = snap.commits
             vm.refs = snap.refs
@@ -190,6 +196,20 @@ final class RepoStore {
         } catch {
             vm.loadState = .failed("\(error)")
         }
+    }
+
+    /// 그래프 무한 스크롤: 다음 페이지(과거 커밋)를 읽어 누적한다.
+    func loadMoreCommits(_ vm: RepoViewModel) async {
+        guard !vm.isLoadingMoreCommits, vm.hasMoreCommits else { return }
+        vm.isLoadingMoreCommits = true
+        defer { vm.isLoadingMoreCommits = false }
+        let skip = vm.commits.count
+        guard let more = try? await GitService.commitLog(
+            repoPath: vm.path, skip: skip, limit: GitService.commitPageSize
+        ), !more.isEmpty else { return }
+        // refresh 와의 레이스로 skip 이 어긋났을 수 있으니 sha 중복은 거른다.
+        let existing = Set(vm.commits.map(\.sha))
+        vm.commits.append(contentsOf: more.filter { !existing.contains($0.sha) })
     }
 
     // MARK: 워칭

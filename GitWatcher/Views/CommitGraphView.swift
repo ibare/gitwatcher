@@ -17,6 +17,8 @@ struct CommitGraphView: View {
     let worktreeHeads: [String: [String]]    // sha → worktree 브랜치명 라벨들
     var wipStatus: [String: WorktreeStatus] = [:]   // "wip:<path>" → 워킹트리 상태
     @Binding var selection: String?
+    var isLoadingMore = false                        // 다음 페이지 로딩 중
+    var onReachEnd: () -> Void = {}                  // 끝 근처 도달 → 추가 로드 요청
 
     /// 가상 WIP(미커밋 변경) 노드 식별.
     private func isWip(_ sha: String) -> Bool { sha.hasPrefix("wip:") }
@@ -58,15 +60,25 @@ struct CommitGraphView: View {
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
-                    ZStack(alignment: .topLeading) {
-                        graphCanvas
-                        rowsOverlay
+                    VStack(spacing: 0) {
+                        ZStack(alignment: .topLeading) {
+                            graphCanvas
+                            rowsOverlay
+                        }
+                        .frame(height: canvasHeight, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                        if isLoadingMore {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
                     }
-                    .frame(height: canvasHeight, alignment: .topLeading)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .overlayScrollbars()
                 .focusable()
+                .focusEffectDisabled()   // 키보드 이동은 유지, 파란 포커스 링만 제거
                 .onMoveCommand { move($0, proxy: proxy) }
             }
         }
@@ -153,7 +165,8 @@ struct CommitGraphView: View {
     // MARK: 행 오버레이 (라벨 칩 + 커밋 메타 + 선택)
 
     private var rowsOverlay: some View {
-        VStack(spacing: 0) {
+        // LazyVStack: 가시 영역의 행만 렌더 → onAppear 가 실제 스크롤 가시성을 반영(무한 prefetch 방지).
+        LazyVStack(spacing: 0) {
             ForEach(layout.placed) { pc in
                 let l = labels(for: pc.commit.sha)
                 HStack(spacing: 0) {
@@ -187,8 +200,19 @@ struct CommitGraphView: View {
                 .contentShape(Rectangle())
                 .onTapGesture { selection = pc.commit.sha }
                 .id(pc.commit.sha)
+                .onAppear {
+                    // 끝에서 약간 앞 행이 보이면 미리 다음 페이지를 당겨온다.
+                    if pc.id == prefetchTriggerID { onReachEnd() }
+                }
             }
         }
+    }
+
+    /// 무한 스크롤 prefetch 를 트리거할 행(끝에서 12번째쯤).
+    private var prefetchTriggerID: String? {
+        let placed = layout.placed
+        guard !placed.isEmpty else { return nil }
+        return placed[max(0, placed.count - 12)].id
     }
 
     @ViewBuilder

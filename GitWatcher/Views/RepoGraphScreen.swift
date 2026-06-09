@@ -81,7 +81,9 @@ struct RepoGraphScreen: View {
                             refsBySHA: refsBySHA,
                             worktreeHeads: worktreeHeads,
                             wipStatus: wipStatus,
-                            selection: $selection
+                            selection: $selection,
+                            isLoadingMore: repo.isLoadingMoreCommits,
+                            onReachEnd: { Task { await store.loadMoreCommits(repo) } }
                         )
                         if let path = selectedFilePath, let src = diffSource {
                             DiffOverlayView(repoPath: repo.path, source: src, path: path) {
