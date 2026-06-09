@@ -11,7 +11,7 @@ import SwiftUI
 
 struct DiffOverlayView: View {
     let repoPath: String
-    let commit: GraphCommit
+    let sha: String          // diff 대상 커밋(파일 히스토리 선택에 따라 바뀜)
     let path: String
     var onClose: () -> Void
 
@@ -40,8 +40,8 @@ struct DiffOverlayView: View {
                 }
         }
         .background(Color(nsColor: .textBackgroundColor))   // 그래프를 완전히 가린다
-        .task(id: path) {
-            // 파일이 바뀌면 diff 를 로드하고(추가줄 추출), File View 면 본문도 로드.
+        .task(id: "\(sha)\u{1}\(path)") {
+            // 파일/대상 커밋이 바뀌면 diff 를 로드하고(추가줄 추출), File View 면 본문도 로드.
             fileText = ""
             await loadDiff()
             if mode == .file { await loadFile() }
@@ -97,7 +97,7 @@ struct DiffOverlayView: View {
     private func loadDiff() async {
         loading = true
         defer { loading = false }
-        let d = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: commit.sha, path: path)) ?? ""
+        let d = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: sha, path: path)) ?? ""
         diffText = d
         addedLines = GitService.addedLineNumbers(inDiff: d)
     }
@@ -105,6 +105,6 @@ struct DiffOverlayView: View {
     private func loadFile() async {
         loading = true
         defer { loading = false }
-        fileText = (try? await GitService.commitFileContent(repoPath: repoPath, sha: commit.sha, path: path)) ?? ""
+        fileText = (try? await GitService.commitFileContent(repoPath: repoPath, sha: sha, path: path)) ?? ""
     }
 }

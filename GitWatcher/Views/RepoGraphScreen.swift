@@ -15,6 +15,7 @@ struct RepoGraphScreen: View {
 
     @State private var selection: String?           // 선택된 커밋 sha
     @State private var selectedFilePath: String?     // 선택된 파일 → diff 오버레이
+    @State private var diffSha: String?              // diff 대상 커밋(파일 히스토리 선택)
 
     private var layout: CommitGraphLayout {
         CommitGraphLayout.build(commits: repo.commits)
@@ -54,18 +55,19 @@ struct RepoGraphScreen: View {
                             worktreeHeads: worktreeHeads,
                             selection: $selection
                         )
-                        if let path = selectedFilePath, let commit = selectedCommit {
-                            DiffOverlayView(repoPath: repo.path, commit: commit, path: path) {
+                        if let path = selectedFilePath, let sha = diffSha {
+                            DiffOverlayView(repoPath: repo.path, sha: sha, path: path) {
                                 selectedFilePath = nil
+                                diffSha = nil
                             }
                             .transition(.opacity)
                         }
                     }
                     .frame(minWidth: 360, idealWidth: 560)
 
-                    // 우측: 커밋 패널 (정보 + 파일 목록)
+                    // 우측: 커밋 패널 (정보 + 파일 목록 + 파일 히스토리)
                     detailPane
-                        .frame(minWidth: 320, idealWidth: 380)
+                        .frame(minWidth: 340, idealWidth: 480)
                 }
             }
         }
@@ -81,14 +83,15 @@ struct RepoGraphScreen: View {
             if selection == nil { selection = repo.commits.first?.sha }
         }
         // 커밋을 바꾸면 열려 있던 diff 오버레이를 닫는다.
-        .onChange(of: selection) { _, _ in selectedFilePath = nil }
+        .onChange(of: selection) { _, _ in selectedFilePath = nil; diffSha = nil }
         .animation(.easeOut(duration: 0.15), value: selectedFilePath)
     }
 
     @ViewBuilder
     private var detailPane: some View {
         if let commit = selectedCommit {
-            CommitInfoPanel(repoPath: repo.path, commit: commit, selectedPath: $selectedFilePath)
+            CommitInfoPanel(repoPath: repo.path, commit: commit,
+                            selectedPath: $selectedFilePath, diffSha: $diffSha)
         } else {
             ContentUnavailableView("Select a commit",
                                    systemImage: "hand.point.up.left",

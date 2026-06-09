@@ -13,9 +13,12 @@ struct CommitInfoPanel: View {
     let repoPath: String
     let commit: GraphCommit
     @Binding var selectedPath: String?
+    @Binding var diffSha: String?           // 파일 히스토리에서 선택된 diff 대상 커밋
 
     @State private var files: [ChangedPath] = []
     @State private var body_: String = ""
+    @State private var history: [GraphCommit] = []
+    @State private var loadingHistory = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -25,9 +28,20 @@ struct CommitInfoPanel: View {
             fileSummary
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-            fileList
+            // 파일 선택 전: 파일 목록만. 선택 후: [파일 목록 | 파일 변경 히스토리] 2분할.
+            if selectedPath == nil {
+                fileList
+            } else {
+                HSplitView {
+                    fileList.frame(minWidth: 180)
+                    historyList.frame(minWidth: 160)
+                }
+            }
         }
         .task(id: commit.sha) { await load() }
+        .onChange(of: selectedPath) { _, newPath in
+            Task { await loadHistory(for: newPath) }
+        }
     }
 
     // MARK: 커밋 정보
@@ -137,11 +151,63 @@ struct CommitInfoPanel: View {
         return dir.isEmpty ? "" : dir + "/"
     }
 
+    // MARK: 파일 변경 히스토리 (선택 파일이 변경된 커밋들)
+
+    private var historyList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("File history")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                if loadingHistory { ProgressView().controlSize(.mini) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            Divider()
+
+            if history.isEmpty && !loadingHistory {
+                Text("No history")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(history, selection: $diffSha) { c in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(c.subject)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        HStack(spacing: 6) {
+                            Text(Fmt.relative(c.date))
+                            Text(c.shortSHA).monospaced()
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 1)
+                    .tag(c.sha)
+                }
+                .listStyle(.inset)
+            }
+        }
+    }
+
     // MARK: 로드
 
     private func load() async {
         selectedPath = nil
+        diffSha = nil
+        history = []
         files = (try? await GitService.commitFiles(repoPath: repoPath, sha: commit.sha)) ?? []
         body_ = (try? await GitService.commitBody(repoPath: repoPath, sha: commit.sha)) ?? ""
+    }
+
+    /// 파일을 선택하면 그 파일의 변경 히스토리를 로드하고 최상단(현재 커밋)을 diff 대상으로 잡는다.
+    private func loadHistory(for path: String?) async {
+        guard let path else { history = []; diffSha = nil; return }
+        diffSha = commit.sha               // 즉시 현재 커밋 diff 표시(히스토리 로드 대기 없이)
+        loadingHistory = true
+        defer { loadingHistory = false }
+        let h = (try? await GitService.fileHistory(repoPath: repoPath, sha: commit.sha, path: path)) ?? []
+        history = h
+        diffSha = h.first?.sha ?? commit.sha    // 최상단 = 현재 커밋
     }
 }

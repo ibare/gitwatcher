@@ -231,6 +231,28 @@ nonisolated enum GitService {
             return ([], 0, nil)
         }
 
+        let commits = parseCommits(out)
+        let last = commits.map(\.date).max()
+        return (commits, commits.count, last)
+    }
+
+    /// 한 파일의 변경 히스토리: log --follow <sha> -- <path> (rename 추적, sha 기준 과거로).
+    /// 첫 항목은 sha 자신(그 커밋에서 파일이 변경됨)이 된다.
+    nonisolated static func fileHistory(repoPath: String, sha: String, path: String) async throws -> [GraphCommit] {
+        let args = ["--follow", sha,
+                    "--pretty=format:%H\(unit)%P\(unit)%an\(unit)%aI\(unit)%s",
+                    "--", path]
+        let out: String
+        do {
+            out = try await GitRunner.run(.log, args, in: repoPath)
+        } catch GitError.nonZeroExit {
+            return []
+        }
+        return parseCommits(out)
+    }
+
+    /// %H⎵%P⎵%an⎵%aI⎵%s 포맷 로그 출력 → [GraphCommit]. (commitLog/fileHistory 공용)
+    private nonisolated static func parseCommits(_ out: String) -> [GraphCommit] {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime]
 
@@ -244,8 +266,7 @@ nonisolated enum GitService {
                 sha: f[0], parents: parents, author: f[2], date: date, subject: f[4]
             ))
         }
-        let last = commits.map(\.date).max()
-        return (commits, commits.count, last)
+        return commits
     }
 
     // MARK: - ref 매핑
