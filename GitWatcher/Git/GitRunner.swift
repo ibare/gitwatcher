@@ -62,17 +62,20 @@ nonisolated enum GitRunner {
 
     /// `git -C <repoPath> <subcommand tokens...> <args...>` 를 실행하고 stdout 을 돌려준다.
     /// - Note: 인자는 전부 배열로 전달되어 셸을 거치지 않는다.
+    /// - Parameter allowingExitCodes: 정상으로 간주할 종료 코드. `git diff --no-index` 처럼
+    ///   "차이 있음 = exit 1" 이 정상인 명령에 [0, 1] 을 넘긴다.
     nonisolated static func run(
         _ subcommand: GitSubcommand,
         _ args: [String] = [],
-        in repoPath: String
+        in repoPath: String,
+        allowingExitCodes: Set<Int32> = [0]
     ) async throws -> String {
         let argv = ["-C", repoPath] + subcommand.tokens + args
-        return try await runRaw(argv)
+        return try await runRaw(argv, allowingExitCodes: allowingExitCodes)
     }
 
     /// 실제 Process 실행. 백그라운드 스레드에서 동기 실행 후 continuation 으로 복귀.
-    nonisolated private static func runRaw(_ argv: [String]) async throws -> String {
+    nonisolated private static func runRaw(_ argv: [String], allowingExitCodes: Set<Int32> = [0]) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let process = Process()
@@ -103,7 +106,7 @@ nonisolated enum GitRunner {
                 let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
                 process.waitUntilExit()
 
-                if process.terminationStatus != 0 {
+                if !allowingExitCodes.contains(process.terminationStatus) {
                     let stderr = String(data: errData, encoding: .utf8) ?? ""
                     continuation.resume(throwing: GitError.nonZeroExit(code: process.terminationStatus, stderr: stderr))
                     return

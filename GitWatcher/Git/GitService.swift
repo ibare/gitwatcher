@@ -366,8 +366,15 @@ nonisolated enum GitService {
         return result
     }
 
-    /// 워킹트리 한 파일 diff: diff HEAD -- <path>
+    /// 워킹트리 한 파일 diff. tracked 변경은 diff HEAD, untracked 새 파일은
+    /// diff --no-index 로 "전체가 추가됨"으로 표시한다(diff HEAD 는 untracked 를 안 보여줌).
     nonisolated static func workingFileDiff(worktreePath: String, path: String) async throws -> String {
-        try await GitRunner.run(.diff, ["HEAD", "--", path], in: worktreePath)
+        let tracked = try await GitRunner.run(.diff, ["HEAD", "--", path], in: worktreePath)
+        if !tracked.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return tracked
+        }
+        // untracked: /dev/null 과 비교해 전체를 added 로. (차이 있으면 exit 1 → 허용)
+        return try await GitRunner.run(.diff, ["--no-index", "--", "/dev/null", path],
+                                       in: worktreePath, allowingExitCodes: [0, 1])
     }
 }
