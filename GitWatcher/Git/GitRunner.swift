@@ -22,6 +22,7 @@ nonisolated enum GitSubcommand: Sendable {
     case revList
     case revParse
     case catFile
+    case lsFiles
 
     /// 실제 argv. worktreeList 는 두 토큰(`worktree`, `list`)으로 펼친다.
     var tokens: [String] {
@@ -36,6 +37,7 @@ nonisolated enum GitSubcommand: Sendable {
         case .revList:      return ["rev-list"]
         case .revParse:     return ["rev-parse"]
         case .catFile:      return ["cat-file"]
+        case .lsFiles:      return ["ls-files"]
         }
     }
 }

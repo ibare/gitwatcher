@@ -300,6 +300,28 @@ nonisolated enum GitService {
         return (ref, .other)
     }
 
+    // MARK: - 파일 추적 인덱스 (탐색기 회색 처리용)
+
+    /// git 이 추적 중인 파일 경로 집합(repo 루트 기준 상대경로). ls-files.
+    nonisolated static func trackedIndex(repoPath: String) async throws -> TrackedIndex {
+        let out = (try? await GitRunner.run(.lsFiles, [], in: repoPath)) ?? ""
+        var files = Set<String>()
+        var dirs = Set<String>()
+        for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
+            let path = String(line)
+            files.insert(path)
+            // 모든 조상 디렉토리를 tracked 로 표시
+            var comps = path.split(separator: "/").map(String.init)
+            comps.removeLast()   // 파일명 제거
+            var acc = ""
+            for c in comps {
+                acc = acc.isEmpty ? c : acc + "/" + c
+                dirs.insert(acc)
+            }
+        }
+        return TrackedIndex(rootPath: repoPath, files: files, dirs: dirs)
+    }
+
     // MARK: - 커밋 상세 / diff
 
     /// 커밋 본문(제목 제외): show -s --format=%b <sha>

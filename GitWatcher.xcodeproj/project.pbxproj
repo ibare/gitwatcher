@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FE0000000000000000000002 /* MaterialIcons in Resources */ = {isa = PBXBuildFile; fileRef = FE0000000000000000000001 /* MaterialIcons */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		B867CA452FD737B2000F5FA3 /* GitWatcher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GitWatcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE0000000000000000000001 /* MaterialIcons */ = {isa = PBXFileReference; lastKnownFileType = folder; path = MaterialIcons; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,6 +38,7 @@
 			isa = PBXGroup;
 			children = (
 				B867CA472FD737B2000F5FA3 /* GitWatcher */,
+				FE0000000000000000000001 /* MaterialIcons */,
 				B867CA462FD737B2000F5FA3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE0000000000000000000002 /* MaterialIcons in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

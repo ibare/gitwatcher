@@ -105,3 +105,30 @@ nonisolated struct GitRef: Hashable, Sendable {
 
     enum Kind: Sendable { case branch, remote, tag, other }
 }
+
+/// git 추적 파일/디렉토리 인덱스. 파일 탐색기에서 미추적 항목을 회색 처리하는 데 쓴다.
+/// 큰 Set 를 담으므로 참조 타입 — Environment 에서 reference identity 로 안정 비교(무한 무효화 방지).
+nonisolated final class TrackedIndex: Sendable {
+    let rootPath: String
+    let files: Set<String>     // repo 루트 기준 상대경로
+    let dirs: Set<String>      // tracked 파일을 가진 모든 조상 디렉토리
+
+    init(rootPath: String, files: Set<String>, dirs: Set<String>) {
+        self.rootPath = rootPath
+        self.files = files
+        self.dirs = dirs
+    }
+
+    /// 해당 URL(파일/폴더)이 git 추적 대상인지.
+    func isTracked(_ url: URL, isDirectory: Bool) -> Bool {
+        let rel = relativePath(of: url)
+        return isDirectory ? dirs.contains(rel) : files.contains(rel)
+    }
+
+    private func relativePath(of url: URL) -> String {
+        var p = url.path(percentEncoded: false)
+        if p.hasSuffix("/") { p.removeLast() }   // 디렉토리 URL 의 끝 슬래시 제거
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        return p.hasPrefix(prefix) ? String(p.dropFirst(prefix.count)) : p
+    }
+}

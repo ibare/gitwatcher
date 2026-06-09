@@ -23,6 +23,7 @@ struct ProjectBrowserScreen: View {
     @State private var root: FileNode?
     @State private var selection: URL?
     @State private var content: LoadedFile?
+    @State private var trackedIndex: TrackedIndex?
 
     private static let maxBytes = 2_000_000   // 2MB 초과 텍스트는 표시 생략
 
@@ -31,6 +32,7 @@ struct ProjectBrowserScreen: View {
             Group {
                 if let root {
                     FileTreeView(root: root, selection: $selection)
+                        .environment(\.trackedIndex, trackedIndex)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -108,6 +110,7 @@ struct ProjectBrowserScreen: View {
         await r.loadChildrenIfNeeded()
         r.isExpanded = true
         root = r
+        trackedIndex = try? await GitService.trackedIndex(repoPath: repo.path)
     }
 
     private func loadFile() async {
@@ -151,9 +154,27 @@ struct FileTreeView: View {
     }
 }
 
+// 트리 전체에 tracked 인덱스를 전달(재귀 행에 매번 넘기지 않도록 Environment 사용).
+private struct TrackedIndexKey: EnvironmentKey {
+    static let defaultValue: TrackedIndex? = nil
+}
+extension EnvironmentValues {
+    var trackedIndex: TrackedIndex? {
+        get { self[TrackedIndexKey.self] }
+        set { self[TrackedIndexKey.self] = newValue }
+    }
+}
+
 private struct FileTreeRow: View {
     @Bindable var node: FileNode
     @Binding var selection: URL?
+    @Environment(\.trackedIndex) private var trackedIndex
+
+    /// git 미추적 항목은 레이블/아이콘을 흐리게.
+    private var isUntracked: Bool {
+        guard let trackedIndex else { return false }
+        return !trackedIndex.isTracked(node.url, isDirectory: node.isDirectory)
+    }
 
     var body: some View {
         if node.isDirectory {
@@ -165,19 +186,43 @@ private struct FileTreeRow: View {
                     }
                 }
             } label: {
-                Label(node.name, systemImage: node.isExpanded ? "folder.fill" : "folder")
-                    .foregroundStyle(Theme.accent)
-                    .lineLimit(1)
-                    .contentShape(Rectangle())
-                    .onTapGesture { node.isExpanded.toggle() }
+                rowLabel(
+                    iconName: MaterialIconTheme.shared.iconName(forFolder: node.name, expanded: node.isExpanded),
+                    fallback: node.isExpanded ? "folder.fill" : "folder"
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { node.isExpanded.toggle() }
             }
             .onChange(of: node.isExpanded) { _, expanded in
                 if expanded { Task { await node.loadChildrenIfNeeded() } }
             }
         } else {
-            Label(node.name, systemImage: FileIcon.symbol(for: node.name))
+            rowLabel(
+                iconName: MaterialIconTheme.shared.iconName(forFile: node.name),
+                fallback: FileIcon.symbol(for: node.name)
+            )
+            .tag(node.url)
+        }
+    }
+
+    @ViewBuilder
+    private func rowLabel(iconName: String, fallback: String) -> some View {
+        let dimmed = isUntracked
+        HStack(spacing: 6) {
+            if let img = MaterialIconTheme.shared.image(named: iconName) {
+                Image(nsImage: img)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 16, height: 16)
+                    .opacity(dimmed ? 0.45 : 1)
+            } else {
+                Image(systemName: fallback)
+                    .frame(width: 16)
+                    .foregroundStyle(Theme.editorText)
+            }
+            Text(node.name)
+                .foregroundStyle(dimmed ? Theme.editorText.opacity(0.45) : Theme.editorText)
                 .lineLimit(1)
-                .tag(node.url)
         }
     }
 }
