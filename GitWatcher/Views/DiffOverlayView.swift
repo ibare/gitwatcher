@@ -10,8 +10,21 @@
 import SwiftUI
 
 struct DiffOverlayView: View {
+    /// diff 대상. 커밋(sha) 또는 워킹트리(미커밋 변경).
+    enum Source: Equatable {
+        case commit(sha: String)
+        case working(worktreePath: String)
+
+        var key: String {
+            switch self {
+            case .commit(let sha): return "c:\(sha)"
+            case .working(let wt): return "w:\(wt)"
+            }
+        }
+    }
+
     let repoPath: String
-    let sha: String          // diff 대상 커밋(파일 히스토리 선택에 따라 바뀜)
+    let source: Source
     let path: String
     var onClose: () -> Void
 
@@ -40,8 +53,8 @@ struct DiffOverlayView: View {
                 }
         }
         .background(Color(nsColor: .textBackgroundColor))   // 그래프를 완전히 가린다
-        .task(id: "\(sha)\u{1}\(path)") {
-            // 파일/대상 커밋이 바뀌면 diff 를 로드하고(추가줄 추출), File View 면 본문도 로드.
+        .task(id: "\(source.key)\u{1}\(path)") {
+            // 파일/대상이 바뀌면 diff 를 로드하고(추가줄 추출), File View 면 본문도 로드.
             fileText = ""
             await loadDiff()
             if mode == .file { await loadFile() }
@@ -65,13 +78,11 @@ struct DiffOverlayView: View {
 
             Spacer(minLength: 8)
 
-            Picker("", selection: $mode) {
-                Text("Diff").tag(ViewMode.diff)
-                Text("File").tag(ViewMode.file)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            PillSegmentedControl(
+                options: [.init(value: .diff, title: "Diff"),
+                          .init(value: .file, title: "File")],
+                selection: $mode
+            )
             .help("Diff View: 변경분만 · File View: 전체 + 변경줄 강조")
 
             Button {
@@ -97,7 +108,13 @@ struct DiffOverlayView: View {
     private func loadDiff() async {
         loading = true
         defer { loading = false }
-        let d = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: sha, path: path)) ?? ""
+        let d: String
+        switch source {
+        case .commit(let sha):
+            d = (try? await GitService.commitFileDiff(repoPath: repoPath, sha: sha, path: path)) ?? ""
+        case .working(let wt):
+            d = (try? await GitService.workingFileDiff(worktreePath: wt, path: path)) ?? ""
+        }
         diffText = d
         addedLines = GitService.addedLineNumbers(inDiff: d)
     }
@@ -105,6 +122,13 @@ struct DiffOverlayView: View {
     private func loadFile() async {
         loading = true
         defer { loading = false }
-        fileText = (try? await GitService.commitFileContent(repoPath: repoPath, sha: sha, path: path)) ?? ""
+        switch source {
+        case .commit(let sha):
+            fileText = (try? await GitService.commitFileContent(repoPath: repoPath, sha: sha, path: path)) ?? ""
+        case .working(let wt):
+            // 워킹트리 전체 파일은 디스크에서 읽는다(미커밋 변경 반영).
+            let full = (wt as NSString).appendingPathComponent(path)
+            fileText = (try? String(contentsOfFile: full, encoding: .utf8)) ?? ""
+        }
     }
 }

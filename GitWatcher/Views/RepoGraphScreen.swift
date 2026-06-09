@@ -17,8 +17,28 @@ struct RepoGraphScreen: View {
     @State private var selectedFilePath: String?     // 선택된 파일 → diff 오버레이
     @State private var diffSha: String?              // diff 대상 커밋(파일 히스토리 선택)
 
+    /// dirty 한 worktree 들 — 그래프 최상단에 WIP 노드로 표시.
+    private var dirtyWorktrees: [Worktree] {
+        repo.worktrees.filter { !$0.status.isClean }
+    }
+
+    /// WIP 가상 커밋(미커밋 변경). parents 를 worktree HEAD 로 두면 레이아웃이 HEAD 위에 매단다.
+    private var wipCommits: [GraphCommit] {
+        dirtyWorktrees.map { wt in
+            GraphCommit(sha: "wip:\(wt.path)", parents: [wt.headSHA],
+                        author: "", date: .distantFuture, subject: "Uncommitted changes")
+        }
+    }
+
+    /// "wip:<path>" → 워킹트리 상태 (그래프 메시지 셀용).
+    private var wipStatus: [String: WorktreeStatus] {
+        Dictionary(uniqueKeysWithValues: dirtyWorktrees.map { ("wip:\($0.path)", $0.status) })
+    }
+
+    private var graphCommits: [GraphCommit] { wipCommits + repo.commits }
+
     private var layout: CommitGraphLayout {
-        CommitGraphLayout.build(commits: repo.commits)
+        CommitGraphLayout.build(commits: graphCommits)
     }
 
     private var refsBySHA: [String: [GitRef]] {
@@ -35,8 +55,15 @@ struct RepoGraphScreen: View {
     }
 
     private var selectedCommit: GraphCommit? {
-        guard let selection else { return nil }
+        guard let selection, !selection.hasPrefix("wip:") else { return nil }
         return repo.commits.first { $0.sha == selection }
+    }
+
+    /// WIP 노드가 선택됐으면 해당 worktree.
+    private var selectedWorktree: Worktree? {
+        guard let selection, selection.hasPrefix("wip:") else { return nil }
+        let path = String(selection.dropFirst("wip:".count))
+        return repo.worktrees.first { $0.path == path }
     }
 
     var body: some View {
@@ -53,10 +80,11 @@ struct RepoGraphScreen: View {
                             layout: layout,
                             refsBySHA: refsBySHA,
                             worktreeHeads: worktreeHeads,
+                            wipStatus: wipStatus,
                             selection: $selection
                         )
-                        if let path = selectedFilePath, let sha = diffSha {
-                            DiffOverlayView(repoPath: repo.path, sha: sha, path: path) {
+                        if let path = selectedFilePath, let src = diffSource {
+                            DiffOverlayView(repoPath: repo.path, source: src, path: path) {
                                 selectedFilePath = nil
                                 diffSha = nil
                             }
@@ -87,9 +115,19 @@ struct RepoGraphScreen: View {
         .animation(.easeOut(duration: 0.15), value: selectedFilePath)
     }
 
+    /// 현재 diff 오버레이가 가져올 소스(워킹트리 우선, 아니면 커밋).
+    private var diffSource: DiffOverlayView.Source? {
+        if let wt = selectedWorktree { return .working(worktreePath: wt.path) }
+        if let sha = diffSha { return .commit(sha: sha) }
+        return nil
+    }
+
     @ViewBuilder
     private var detailPane: some View {
-        if let commit = selectedCommit {
+        if let wt = selectedWorktree {
+            WorkingChangesPanel(repoName: repo.displayName, worktree: wt,
+                                selectedPath: $selectedFilePath)
+        } else if let commit = selectedCommit {
             CommitInfoPanel(repoPath: repo.path, commit: commit,
                             selectedPath: $selectedFilePath, diffSha: $diffSha)
         } else {

@@ -15,7 +15,11 @@ struct CommitGraphView: View {
     let layout: CommitGraphLayout
     let refsBySHA: [String: [GitRef]]
     let worktreeHeads: [String: [String]]    // sha → worktree 브랜치명 라벨들
+    var wipStatus: [String: WorktreeStatus] = [:]   // "wip:<path>" → 워킹트리 상태
     @Binding var selection: String?
+
+    /// 가상 WIP(미커밋 변경) 노드 식별.
+    private func isWip(_ sha: String) -> Bool { sha.hasPrefix("wip:") }
 
     // 고정 메트릭
     private let leftColWidth: CGFloat = 210     // BRANCH / TAG 컬럼
@@ -99,9 +103,10 @@ struct CommitGraphView: View {
                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1, 3]))
             }
 
-            // 2) 엣지
+            // 2) 엣지 (WIP 에서 나가는 엣지는 점선)
             for pc in layout.placed {
                 let fromPt = CGPoint(x: x(pc.column), y: y(pc.row))
+                let wip = isWip(pc.commit.sha)
                 for edge in pc.edges {
                     let toRow = edge.toRow ?? layout.placed.count
                     var path = Path()
@@ -110,14 +115,25 @@ struct CommitGraphView: View {
                         path.addLine(to: CGPoint(x: x(edge.toColumn), y: y(pc.row) + rowH))
                     }
                     path.addLine(to: CGPoint(x: x(edge.toColumn), y: y(toRow)))
-                    ctx.stroke(path, with: .color(color(edge.colorIndex).opacity(0.85)),
-                               style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                    let style = wip
+                        ? StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [3, 3])
+                        : StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                    let col = wip ? Theme.dirty : color(edge.colorIndex)
+                    ctx.stroke(path, with: .color(col.opacity(0.85)), style: style)
                 }
             }
 
-            // 3) 노드
+            // 3) 노드 (WIP 는 채우지 않은 점선 원)
             for pc in layout.placed {
                 let c = CGPoint(x: x(pc.column), y: y(pc.row))
+                if isWip(pc.commit.sha) {
+                    let r = nodeR + 0.5
+                    let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+                    ctx.fill(Circle().path(in: rect), with: .color(Color(nsColor: .windowBackgroundColor)))
+                    ctx.stroke(Circle().path(in: rect), with: .color(Theme.dirty),
+                               style: StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+                    continue
+                }
                 let isHead = worktreeHeads[pc.commit.sha] != nil
                 let r = isHead ? nodeR + 1.5 : nodeR
                 let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
@@ -174,24 +190,45 @@ struct CommitGraphView: View {
         }
     }
 
+    @ViewBuilder
     private func messageCell(_ commit: GraphCommit) -> some View {
-        HStack(spacing: 8) {
-            Text(commit.subject)
-                .font(.callout)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            Text(commit.shortSHA)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.tertiary)
-            Text(commit.author)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: 110, alignment: .trailing)
+        if isWip(commit.sha), let st = wipStatus[commit.sha] {
+            // WIP 행: 미커밋 변경 요약
+            HStack(spacing: 8) {
+                Image(systemName: "pencil.line").font(.caption2)
+                Text("Uncommitted changes")
+                    .font(.callout.weight(.medium))
+                Text("·").foregroundStyle(.secondary)
+                Text("\(st.changedFiles) \(st.changedFiles == 1 ? "file" : "files")")
+                    .font(.caption)
+                if st.insertions > 0 || st.deletions > 0 {
+                    Text("+\(st.insertions)").font(.caption2.monospacedDigit()).foregroundStyle(Theme.clean)
+                    Text("−\(st.deletions)").font(.caption2.monospacedDigit()).foregroundStyle(.red)
+                }
+                Spacer(minLength: 8)
+            }
+            .foregroundStyle(Theme.dirty)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(spacing: 8) {
+                Text(commit.subject)
+                    .font(.callout)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                Text(commit.shortSHA)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                Text(commit.author)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 110, alignment: .trailing)
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: 키보드 내비
