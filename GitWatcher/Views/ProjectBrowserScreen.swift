@@ -100,17 +100,19 @@ struct ProjectBrowserScreen: View {
         .toolbar {
             if worktrees.count > 1 {
                 ToolbarItem(placement: .primaryAction) {
-                    PillSegmentedControl(options: worktreeOptions, selection: worktreeSelection)
+                    // 대시보드 정렬과 동일한 네이티브 세그먼트 Picker(toolbar 에서 시스템 렌더).
+                    Picker("Worktree", selection: worktreeSelection) {
+                        ForEach(worktrees) { wt in
+                            Text(wt.name).tag(wt.path)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
             }
         }
         .task(id: currentPath) { await loadRoot() }
         .task(id: selection) { await loadFile() }
-    }
-
-    /// worktree 전환 세그먼트의 항목 — 디렉토리명으로 표시.
-    private var worktreeOptions: [PillSegmentedControl<String>.Option] {
-        worktrees.map { .init(value: $0.path, title: $0.name) }
     }
 
     /// 세그먼트 선택 바인딩 — 바뀌면 트리 루트 worktree 를 교체하고 파일 선택을 초기화.

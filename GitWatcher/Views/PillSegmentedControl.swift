@@ -38,29 +38,27 @@ struct PillSegmentedControl<T: Hashable>: View {
         let selected = selection == opt.value
         let prevSelected = idx > 0 && selection == options[idx - 1].value
 
-        Button {
-            selection = opt.value
-        } label: {
-            Text(opt.title)
-                .font(.subheadline.weight(selected ? .semibold : .regular))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 3)
-                .background {
-                    if selected {
-                        Capsule(style: .continuous).fill(Color.primary.opacity(0.09))
-                    }
+        // Button 대신 Text + onTapGesture: macOS 26 toolbar 가 ToolbarItem 안의 Button 을
+        // 시스템 캡슐 배경으로 자동 감싸는 것을 피한다(시각/동작 동일).
+        Text(opt.title)
+            .font(.subheadline.weight(selected ? .semibold : .regular))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .background {
+                if selected {
+                    Capsule(style: .continuous).fill(Color.primary.opacity(0.09))
                 }
-                .overlay(alignment: .leading) {
-                    // 인접 두 항목이 모두 비선택일 때만 구분선(toolbar segmented 와 동일).
-                    if idx > 0 && !selected && !prevSelected {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.12))
-                            .frame(width: 1, height: 14)
-                    }
+            }
+            .overlay(alignment: .leading) {
+                // 인접 두 항목이 모두 비선택일 때만 구분선(toolbar segmented 와 동일).
+                if idx > 0 && !selected && !prevSelected {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1, height: 14)
                 }
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { selection = opt.value }
     }
 }
