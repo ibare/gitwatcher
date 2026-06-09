@@ -16,6 +16,11 @@ struct RepoGraphScreen: View {
     @State private var selection: String?           // 선택된 커밋 sha
     @State private var selectedFilePath: String?     // 선택된 파일 → diff 오버레이
     @State private var diffSha: String?              // diff 대상 커밋(파일 히스토리 선택)
+    /// 좌측 그래프 패널 폭 — 마지막 조정값을 유지(앱 재시작에도 보존).
+    @AppStorage("RepoGraph.graphPaneWidth") private var graphPaneWidth: Double = 560
+
+    private static let graphPaneMinWidth: Double = 360
+    private static let graphPaneMaxWidth: Double = 1000
 
     /// dirty 한 worktree 들 — 그래프 최상단에 WIP 노드로 표시.
     private var dirtyWorktrees: [Worktree] {
@@ -73,7 +78,7 @@ struct RepoGraphScreen: View {
                                        systemImage: "point.3.connected.trianglepath.dotted",
                                        description: Text("This repository has no commit history."))
             } else {
-                HSplitView {
+                HStack(spacing: 0) {
                     // 좌측: 그래프 (+ 파일 선택 시 diff 오버레이)
                     ZStack {
                         CommitGraphView(
@@ -93,11 +98,18 @@ struct RepoGraphScreen: View {
                             .transition(.opacity)
                         }
                     }
-                    .frame(minWidth: 360, idealWidth: 560)
+                    .frame(width: graphPaneWidth)
+                    .frame(maxHeight: .infinity)
+
+                    ResizableDivider(
+                        width: $graphPaneWidth,
+                        minWidth: Self.graphPaneMinWidth,
+                        maxWidth: Self.graphPaneMaxWidth
+                    )
 
                     // 우측: 커밋 패널 (정보 + 파일 목록 + 파일 히스토리)
                     detailPane
-                        .frame(minWidth: 340, idealWidth: 480)
+                        .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }

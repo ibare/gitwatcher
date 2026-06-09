@@ -206,37 +206,6 @@ struct ProjectBrowserScreen: View {
     }
 }
 
-// MARK: - 리사이즈 가능한 구분선
-
-/// 좌측 사이드바 폭을 드래그로 조정하는 분할선. 폭은 호출부에서 영속화한다.
-private struct ResizableDivider: View {
-    @Binding var width: Double
-    let minWidth: Double
-    let maxWidth: Double
-
-    @State private var dragBase: Double?
-
-    var body: some View {
-        ZStack {
-            Color.clear.frame(width: 10).contentShape(Rectangle())
-            Rectangle().fill(Color.primary.opacity(0.10)).frame(width: 1)
-        }
-        .frame(maxHeight: .infinity)
-        .onHover { inside in
-            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    let base = dragBase ?? width
-                    if dragBase == nil { dragBase = width }
-                    width = min(max(base + value.translation.width, minWidth), maxWidth)
-                }
-                .onEnded { _ in dragBase = nil }
-        )
-    }
-}
-
 // MARK: - 파일 트리
 
 struct FileTreeView: View {
