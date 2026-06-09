@@ -9,6 +9,29 @@
 import SwiftUI
 import Observation
 
+// MARK: - 카드 정렬 기준
+
+/// 대시보드 카드 표시 순서. rawValue 는 영속화 키(안정적), label 은 UI 표시.
+nonisolated enum RepoSort: String, CaseIterable, Identifiable {
+    case recentlyChanged
+    case mostCommits
+    case stalest
+    case name
+    case dirtyFirst
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .recentlyChanged: return "Recent"
+        case .mostCommits:     return "Commits"
+        case .stalest:         return "Stale"
+        case .name:            return "Name"
+        case .dirtyFirst:      return "Changed"
+        }
+    }
+}
+
 // MARK: - 리포 뷰모델 (런타임 상태)
 
 enum LoadState: Equatable { case idle, loading, loaded, failed(String) }
@@ -54,8 +77,33 @@ final class RepoViewModel: Identifiable {
 final class RepoStore {
     private(set) var repos: [RepoViewModel] = []
 
+    /// 대시보드 카드 표시 순서.
+    var sortOrder: RepoSort = .recentlyChanged {
+        didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: sortKey) }
+    }
+
+    /// 현재 정렬 기준이 적용된 카드 순서.
+    var sortedRepos: [RepoViewModel] {
+        switch sortOrder {
+        case .recentlyChanged:
+            return repos.sorted { ($0.lastCommitDate ?? .distantPast) > ($1.lastCommitDate ?? .distantPast) }
+        case .mostCommits:
+            return repos.sorted { $0.totalCommits > $1.totalCommits }
+        case .stalest:
+            return repos.sorted { ($0.lastCommitDate ?? .distantPast) < ($1.lastCommitDate ?? .distantPast) }
+        case .name:
+            return repos.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        case .dirtyFirst:
+            return repos.sorted {
+                if $0.isAnyDirty != $1.isAnyDirty { return $0.isAnyDirty }   // dirty 를 위로
+                return ($0.lastCommitDate ?? .distantPast) > ($1.lastCommitDate ?? .distantPast)
+            }
+        }
+    }
+
     private var watchers: [UUID: RepoWatcher] = [:]
     private let defaultsKey = "GitWatcher.registeredRepos.v1"
+    private let sortKey = "GitWatcher.sortOrder.v1"
 
     // 영속화 단위: 경로만 저장한다.
     private struct Registration: Codable {
@@ -65,6 +113,10 @@ final class RepoStore {
     }
 
     init() {
+        if let raw = UserDefaults.standard.string(forKey: sortKey),
+           let restored = RepoSort(rawValue: raw) {
+            sortOrder = restored
+        }
         load()
     }
 

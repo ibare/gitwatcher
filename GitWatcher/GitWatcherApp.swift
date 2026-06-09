@@ -18,5 +18,6 @@ struct GitWatcherApp: App {
                 .frame(minWidth: 720, minHeight: 480)
         }
         .defaultSize(width: 1100, height: 760)
+        .windowToolbarStyle(.unified)   // Finder 톤의 타이틀바 통합 툴바
     }
 }

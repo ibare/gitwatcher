@@ -18,6 +18,7 @@ struct DashboardView: View {
     private let columns = [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)]
 
     var body: some View {
+        @Bindable var store = store
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -25,7 +26,7 @@ struct DashboardView: View {
                         emptyState
                     } else {
                         LazyVGrid(columns: columns, spacing: 16) {
-                            ForEach(store.repos) { repo in
+                            ForEach(store.sortedRepos) { repo in
                                 RepoCardView(repo: repo, onOpenGraph: { path.append(repo.id) },
                                              onViewChanges: { wt in
                                     workingContext = .working(repoName: repo.displayName,
@@ -46,6 +47,18 @@ struct DashboardView: View {
             }
             .navigationTitle("Git Watcher")
             .toolbar {
+                if !store.repos.isEmpty {
+                    ToolbarItem(placement: .principal) {
+                        Picker("Sort", selection: $store.sortOrder) {
+                            ForEach(RepoSort.allCases) { sort in
+                                Text(sort.label).tag(sort)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .help("정렬 순서")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         showImporter = true
