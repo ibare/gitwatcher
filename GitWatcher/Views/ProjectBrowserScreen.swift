@@ -33,6 +33,7 @@ struct ProjectBrowserScreen: View {
                 if let root {
                     FileTreeView(root: root, selection: $selection)
                         .environment(\.trackedIndex, trackedIndex)
+                        .environment(\.repoRootPath, repo.path)
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -158,10 +159,17 @@ struct FileTreeView: View {
 private struct TrackedIndexKey: EnvironmentKey {
     static let defaultValue: TrackedIndex? = nil
 }
+private struct RepoRootPathKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
 extension EnvironmentValues {
     var trackedIndex: TrackedIndex? {
         get { self[TrackedIndexKey.self] }
         set { self[TrackedIndexKey.self] = newValue }
+    }
+    var repoRootPath: String? {
+        get { self[RepoRootPathKey.self] }
+        set { self[RepoRootPathKey.self] = newValue }
     }
 }
 
@@ -169,11 +177,34 @@ private struct FileTreeRow: View {
     @Bindable var node: FileNode
     @Binding var selection: URL?
     @Environment(\.trackedIndex) private var trackedIndex
+    @Environment(\.repoRootPath) private var repoRootPath
+
+    @State private var isHovered = false
+    @State private var justCopied = false
 
     /// git 미추적 항목은 레이블/아이콘을 흐리게.
     private var isUntracked: Bool {
         guard let trackedIndex else { return false }
         return !trackedIndex.isTracked(node.url, isDirectory: node.isDirectory)
+    }
+
+    /// 호버 시 노출되는 경로 복사 버튼 — 프로젝트 루트 기준 상대 경로를 클립보드에 넣는다.
+    private func copyPath() {
+        let abs = node.url.path(percentEncoded: false)
+        let path: String
+        if let root = repoRootPath {
+            let prefix = root.hasSuffix("/") ? root : root + "/"
+            path = abs.hasPrefix(prefix) ? String(abs.dropFirst(prefix.count)) : abs
+        } else {
+            path = abs
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+        justCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            justCopied = false
+        }
     }
 
     var body: some View {
@@ -223,7 +254,23 @@ private struct FileTreeRow: View {
             Text(node.name)
                 .foregroundStyle(dimmed ? Theme.editorText.opacity(0.45) : Theme.editorText)
                 .lineLimit(1)
+
+            Spacer(minLength: 4)
+
+            if isHovered || justCopied {
+                Button(action: copyPath) {
+                    Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 11))
+                        .foregroundStyle(justCopied ? Theme.clean : Theme.editorText.opacity(0.7))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("경로 복사")
+            }
         }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 
