@@ -31,10 +31,14 @@ struct RepoCardView: View {
 
             recentCommits
 
+            // 같은 행의 카드를 가장 큰 카드 높이로 맞추고 footer 를 바닥에 정렬한다.
+            Spacer(minLength: 0)
+
             Divider().opacity(0.5)
             footer
         }
         .padding(16)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.cardBackground, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.cardStroke, lineWidth: 1))
         .contentShape(Rectangle())
