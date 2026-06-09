@@ -18,14 +18,12 @@ struct DashboardView: View {
     private let columns = [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: 16)]
 
     var body: some View {
-        @Bindable var store = store
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if store.repos.isEmpty {
                         emptyState
                     } else {
-                        HeatmapView(repos: store.repos, range: $store.heatmapRange)
                         LazyVGrid(columns: columns, spacing: 16) {
                             ForEach(store.repos) { repo in
                                 RepoCardView(repo: repo, onOpenGraph: { path.append(repo.id) },

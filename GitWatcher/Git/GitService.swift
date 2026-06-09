@@ -279,27 +279,6 @@ nonisolated enum GitService {
         return (ref, .other)
     }
 
-    // MARK: - 히트맵 / 스파크라인용 일자별 커밋 수
-
-    /// log --all --pretty=%cd --date=short → ["2026-06-08": 3, ...]
-    nonisolated static func dailyCommitCounts(repoPath: String, sinceDaysAgo: Int? = nil) async throws -> [String: Int] {
-        var args = ["--all", "--pretty=%cd", "--date=short"]
-        if let days = sinceDaysAgo {
-            args.append("--since=\(days) days ago")
-        }
-        let out: String
-        do {
-            out = try await GitRunner.run(.log, args, in: repoPath)
-        } catch GitError.nonZeroExit {
-            return [:]
-        }
-        var counts: [String: Int] = [:]
-        for line in out.split(separator: "\n", omittingEmptySubsequences: true) {
-            counts[String(line), default: 0] += 1
-        }
-        return counts
-    }
-
     // MARK: - 커밋 상세 / diff
 
     /// diff-tree --no-commit-id --name-status -r <sha> → 변경 파일 목록.

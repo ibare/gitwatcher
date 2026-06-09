@@ -105,10 +105,3 @@ nonisolated struct GitRef: Hashable, Sendable {
 
     enum Kind: Sendable { case branch, remote, tag, other }
 }
-
-/// 모노레포 변경 분포 바의 한 조각.
-nonisolated struct PackageChange: Identifiable, Hashable, Sendable {
-    var name: String
-    var changedFiles: Int
-    var id: String { name }
-}

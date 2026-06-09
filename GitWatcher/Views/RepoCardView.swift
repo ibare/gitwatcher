@@ -29,11 +29,7 @@ struct RepoCardView: View {
                 }
             }
 
-            if !repo.packageChanges.isEmpty {
-                PackageDistributionBar(changes: repo.packageChanges)
-            }
-
-            sparkline
+            recentCommits
 
             Divider().opacity(0.5)
             footer
@@ -125,20 +121,26 @@ struct RepoCardView: View {
         .foregroundStyle(.secondary)
     }
 
-    // MARK: 스파크라인
+    // MARK: 최근 커밋 10개 (상대 날짜 + 메시지, 한 줄 말줄임)
 
     @ViewBuilder
-    private var sparkline: some View {
-        let series = DailySeries.recent(repo.dailyCounts, days: 30)
-        if series.reduce(0, +) > 0 {
-            SparklineView(values: series)
-                .frame(height: 28)
-        } else {
-            Text("No recent activity")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .frame(height: 28, alignment: .center)
-                .frame(maxWidth: .infinity)
+    private var recentCommits: some View {
+        if !repo.commits.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(repo.commits.prefix(10)) { commit in
+                    HStack(spacing: 8) {
+                        Text(Fmt.relative(commit.date))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 56, alignment: .leading)
+                        Text(commit.subject)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
         }
     }
 
@@ -233,39 +235,5 @@ private struct WorktreeRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .help(worktree.status.isClean ? worktree.path : "Click to view changes")
-    }
-}
-
-private struct PackageDistributionBar: View {
-    let changes: [PackageChange]
-    private var total: Int { max(changes.reduce(0) { $0 + $1.changedFiles }, 1) }
-
-    private let palette: [Color] = [.indigo, .blue, .teal, .purple, .pink, .orange]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            GeometryReader { geo in
-                HStack(spacing: 1) {
-                    ForEach(Array(changes.prefix(6).enumerated()), id: \.element.id) { idx, change in
-                        Rectangle()
-                            .fill(palette[idx % palette.count])
-                            .frame(width: max(geo.size.width * CGFloat(change.changedFiles) / CGFloat(total), 2))
-                    }
-                }
-            }
-            .frame(height: 6)
-            .clipShape(Capsule())
-
-            // 범례(상위 3개)
-            HStack(spacing: 8) {
-                ForEach(Array(changes.prefix(3).enumerated()), id: \.element.id) { idx, change in
-                    HStack(spacing: 3) {
-                        Circle().fill(palette[idx % palette.count]).frame(width: 6, height: 6)
-                        Text("\(change.name) \(change.changedFiles)")
-                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-            }
-        }
     }
 }

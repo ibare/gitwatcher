@@ -29,8 +29,6 @@ final class RepoViewModel: Identifiable {
     var lastCommitDate: Date?
     var trunk: String?
 
-    var dailyCounts: [String: Int] = [:]      // 히트맵/스파크라인용
-    var packageChanges: [PackageChange] = []   // 모노레포 변경 분포
 
     var loadState: LoadState = .idle
 
@@ -55,13 +53,6 @@ final class RepoViewModel: Identifiable {
 @Observable
 final class RepoStore {
     private(set) var repos: [RepoViewModel] = []
-    var heatmapRange: HeatmapRange = .last30Days { didSet { Task { await refreshAllHeatmaps() } } }
-
-    enum HeatmapRange: String, CaseIterable, Identifiable {
-        case last30Days = "Last 30 days"
-        case allTime = "All time"
-        var id: String { rawValue }
-    }
 
     private var watchers: [UUID: RepoWatcher] = [:]
     private let defaultsKey = "GitWatcher.registeredRepos.v1"
@@ -132,7 +123,7 @@ final class RepoStore {
         for vm in repos { startWatching(vm) }
     }
 
-    /// 한 리포의 라이브 상태 + 그래프 + 히트맵을 갱신한다.
+    /// 한 리포의 라이브 상태 + 그래프 + 스파크라인을 갱신한다.
     func refresh(_ vm: RepoViewModel) async {
         if vm.loadState == .idle { vm.loadState = .loading }
         do {
@@ -143,23 +134,10 @@ final class RepoStore {
             vm.totalCommits = snap.totalCommits
             vm.lastCommitDate = snap.lastCommitDate
             vm.trunk = snap.trunk
-            vm.packageChanges = Self.computePackageChanges(worktrees: snap.worktrees)
             vm.loadState = .loaded
-            await refreshHeatmap(vm)
         } catch {
             vm.loadState = .failed("\(error)")
         }
-    }
-
-    private func refreshHeatmap(_ vm: RepoViewModel) async {
-        let days = heatmapRange == .last30Days ? 30 : nil
-        if let counts = try? await GitService.dailyCommitCounts(repoPath: vm.path, sinceDaysAgo: days) {
-            vm.dailyCounts = counts
-        }
-    }
-
-    private func refreshAllHeatmaps() async {
-        for vm in repos { await refreshHeatmap(vm) }
     }
 
     // MARK: 워칭
@@ -179,29 +157,5 @@ final class RepoStore {
         }
         watcher.start()
         watchers[id] = watcher
-    }
-
-    // MARK: 모노레포 변경 분포
-
-    /// 변경 파일의 최상위 디렉토리(또는 packages/* / apps/*)별로 묶어 분포 바 데이터 생성.
-    private static func computePackageChanges(worktrees: [Worktree]) -> [PackageChange] {
-        var buckets: [String: Int] = [:]
-        for wt in worktrees {
-            for cp in wt.status.changedPaths {
-                let comps = cp.path.split(separator: "/").map(String.init)
-                let bucket: String
-                if comps.count >= 2, comps[0] == "packages" || comps[0] == "apps" {
-                    bucket = "\(comps[0])/\(comps[1])"
-                } else if comps.count >= 2 {
-                    bucket = comps[0]
-                } else {
-                    bucket = "(root)"
-                }
-                buckets[bucket, default: 0] += 1
-            }
-        }
-        return buckets
-            .map { PackageChange(name: $0.key, changedFiles: $0.value) }
-            .sorted { $0.changedFiles > $1.changedFiles }
     }
 }
