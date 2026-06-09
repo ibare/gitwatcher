@@ -10,6 +10,48 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 변경 종류 표시 헬퍼
+
+extension ChangeKind {
+    /// 파일 변경 종류 아이콘.
+    var symbolName: String {
+        switch self {
+        case .modified:    return "pencil"
+        case .added:       return "plus"
+        case .deleted:     return "minus"
+        case .renamed:     return "arrow.right"
+        case .copied:      return "doc.on.doc"
+        case .typeChanged: return "arrow.triangle.2.circlepath"
+        case .untracked:   return "plus.circle"
+        case .unmerged:    return "exclamationmark.triangle"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .added, .untracked:   return Theme.clean
+        case .deleted:             return .red
+        case .renamed, .copied:    return Theme.diverged
+        case .unmerged:            return .red
+        default:                   return Theme.dirty
+        }
+    }
+
+    /// "modified", "added" … 변경 요약 문구용.
+    var label: String {
+        switch self {
+        case .modified:    return "modified"
+        case .added:       return "added"
+        case .deleted:     return "deleted"
+        case .renamed:     return "renamed"
+        case .copied:      return "copied"
+        case .typeChanged: return "type changed"
+        case .untracked:   return "untracked"
+        case .unmerged:    return "unmerged"
+        }
+    }
+}
+
 enum Theme {
     static let accent = Color.indigo
 

@@ -281,6 +281,12 @@ nonisolated enum GitService {
 
     // MARK: - 커밋 상세 / diff
 
+    /// 커밋 본문(제목 제외): show -s --format=%b <sha>
+    nonisolated static func commitBody(repoPath: String, sha: String) async throws -> String {
+        let out = try await GitRunner.run(.show, ["-s", "--format=%b", sha], in: repoPath)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// diff-tree --no-commit-id --name-status -r <sha> → 변경 파일 목록.
     nonisolated static func commitFiles(repoPath: String, sha: String) async throws -> [ChangedPath] {
         let out = try await GitRunner.run(.diffTree, ["--no-commit-id", "--name-status", "-r", sha], in: repoPath)
@@ -296,9 +302,10 @@ nonisolated enum GitService {
         return files
     }
 
-    /// 커밋 내 한 파일 diff: show <sha> -- <path>
+    /// 커밋 내 한 파일 diff: diff-tree -p --no-commit-id <sha> -- <path>
+    /// (show 와 달리 커밋 메타/메시지 헤더 없이 patch 만 출력 — 우측 커밋 패널과 중복 제거)
     nonisolated static func commitFileDiff(repoPath: String, sha: String, path: String) async throws -> String {
-        try await GitRunner.run(.show, [sha, "--", path], in: repoPath)
+        try await GitRunner.run(.diffTree, ["-p", "--no-commit-id", sha, "--", path], in: repoPath)
     }
 
     /// 워킹트리 한 파일 diff: diff HEAD -- <path>
