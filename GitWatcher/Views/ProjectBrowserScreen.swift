@@ -24,15 +24,25 @@ struct ProjectBrowserScreen: View {
     @State private var selection: URL?
     @State private var content: LoadedFile?
     @State private var trackedIndex: TrackedIndex?
+    /// 워킹 디렉토리 변경 상태(상단 변경 섹션 표시용). nil = 아직 로드 전.
+    @State private var status: WorktreeStatus?
+    /// 변경 파일 선택 시 트리를 해당 위치로 스크롤하기 위한 트리거.
+    @State private var scrollTarget: URL?
     /// 탐색 대상 worktree 경로. nil 이면 메인 worktree.
     @State private var selectedWorktreePath: String?
     /// 트리 사이드바 폭 — 마지막 조정값을 유지(앱 재시작에도 보존).
     @AppStorage("ProjectBrowser.sidebarWidth") private var sidebarWidth: Double = 300
+    /// 상단 변경 섹션 높이 — 영속화.
+    @AppStorage("ProjectBrowser.changesHeight") private var changesHeight: Double = 220
+    /// 상단 변경 섹션 접힘 상태 — 영속화.
+    @AppStorage("ProjectBrowser.changesCollapsed") private var changesCollapsed = false
     /// 마크다운 파일을 렌더링 프리뷰로 볼지(코드 보기와 토글). 기본 프리뷰.
     @State private var markdownPreview = true
 
     private static let sidebarMinWidth: Double = 180
     private static let sidebarMaxWidth: Double = 640
+    private static let changesMinHeight: Double = 80
+    private static let changesMaxHeight: Double = 600
 
     private static let maxBytes = 2_000_000   // 2MB 초과 텍스트는 표시 생략
 
@@ -63,17 +73,7 @@ struct ProjectBrowserScreen: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Group {
-                if let root {
-                    FileTreeView(root: root, selection: $selection)
-                        .environment(\.trackedIndex, trackedIndex)
-                        .environment(\.repoRootPath, currentPath)
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(width: sidebarWidth)
-            .frame(maxHeight: .infinity)
+            sidebarColumn
 
             ResizableDivider(
                 width: $sidebarWidth,
@@ -113,6 +113,59 @@ struct ProjectBrowserScreen: View {
         }
         .task(id: currentPath) { await loadRoot() }
         .task(id: selection) { await loadFile() }
+        .onChange(of: selection) { _, newValue in
+            // 변경 파일/트리에서 선택된 파일을 트리에서 펼쳐 위치를 확정하고 스크롤.
+            guard let url = newValue, let root, !isDirectory(url) else { return }
+            Task {
+                guard let node = await root.reveal(to: url) else { return }
+                // reveal 이 찾은 실제 트리 노드의 URL 로 맞춰 List 하이라이트·스크롤이 동작하게 한다.
+                if node.url != url { selection = node.url }
+                // 방금 펼친 행이 List 에 렌더·레이아웃될 시간을 준 뒤 스크롤(즉시 호출하면 대상 id 가 없음).
+                try? await Task.sleep(for: .milliseconds(250))
+                scrollTarget = node.url
+            }
+        }
+    }
+
+    /// 좌측 사이드바: 상단 워킹 디렉토리 변경 섹션 + (수직 분할) + 하단 파일 트리.
+    @ViewBuilder
+    private var sidebarColumn: some View {
+        VStack(spacing: 0) {
+            if let status {
+                WorkingChangesSidebar(
+                    status: status,
+                    rootPath: currentPath,
+                    selection: $selection,
+                    collapsed: $changesCollapsed
+                )
+                .frame(height: changesCollapsed ? nil : changesHeight)
+
+                if changesCollapsed {
+                    Divider().opacity(0.5)
+                } else {
+                    ResizableDivider(
+                        width: $changesHeight,
+                        minWidth: Self.changesMinHeight,
+                        maxWidth: Self.changesMaxHeight,
+                        orientation: .vertical
+                    )
+                }
+            }
+
+            Group {
+                if let root {
+                    FileTreeView(root: root, selection: $selection, scrollTarget: scrollTarget)
+                        .environment(\.trackedIndex, trackedIndex)
+                        .environment(\.repoRootPath, currentPath)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(Theme.editorSidebar)
     }
 
     /// 세그먼트 선택 바인딩 — 바뀌면 트리 루트 worktree 를 교체하고 파일 선택을 초기화.
@@ -194,6 +247,7 @@ struct ProjectBrowserScreen: View {
         // worktree 전환 시 즉시 스피너를 보이도록 트리를 비운다.
         root = nil
         trackedIndex = nil
+        status = nil
         selection = nil
         let r = FileNode(url: URL(fileURLWithPath: path), isDirectory: true)
         await r.loadChildrenIfNeeded()
@@ -202,6 +256,8 @@ struct ProjectBrowserScreen: View {
         guard path == currentPath else { return }
         root = r
         trackedIndex = try? await GitService.trackedIndex(repoPath: path)
+        guard path == currentPath else { return }
+        status = (try? await GitService.worktreeStatus(worktreePath: path)) ?? .clean
     }
 
     private func loadFile() async {
@@ -231,17 +287,27 @@ struct ProjectBrowserScreen: View {
 struct FileTreeView: View {
     let root: FileNode
     @Binding var selection: URL?
+    /// 변경 파일 선택 시 이 경로로 스크롤(상단 변경 섹션에서 위치 확정).
+    var scrollTarget: URL? = nil
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(root.children ?? []) { node in
-                FileTreeRow(node: node, selection: $selection)
+        ScrollViewReader { proxy in
+            List(selection: $selection) {
+                ForEach(root.children ?? []) { node in
+                    FileTreeRow(node: node, selection: $selection)
+                }
+            }
+            .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(Theme.editorSidebar)
+            .overlayScrollbars()
+            .onChange(of: scrollTarget) { _, target in
+                guard let target else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
-        .background(Theme.editorSidebar)
-        .overlayScrollbars()
     }
 }
 

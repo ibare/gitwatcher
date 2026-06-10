@@ -24,7 +24,9 @@ final class FileNode: Identifiable {
     nonisolated var id: URL { url }
 
     init(url: URL, isDirectory: Bool) {
-        self.url = url
+        // 변경 섹션 등 다른 경로로 만든 URL 과 == 매칭되도록 표현을 표준화한다
+        // (List selection/scrollTo 는 URL 객체 동등성에 의존).
+        self.url = url.standardizedFileURL
         self.name = url.lastPathComponent
         self.isDirectory = isDirectory
     }
@@ -38,6 +40,36 @@ final class FileNode: Identifiable {
             FileNode.read(url)
         }.value
         children = entries.map { FileNode(url: $0.url, isDirectory: $0.isDir) }
+    }
+
+    /// 대상 파일 URL 까지 경로상의 조상 디렉토리를 루트부터 lazy 로드하며 펼친다.
+    /// 변경 파일을 트리에서 빠르게 위치 확정하는 용도. 대상 파일 노드를 찾으면 반환.
+    @discardableResult
+    func reveal(to target: URL) async -> FileNode? {
+        let targetPath = Self.normalizedPath(target)
+        let selfPath = Self.normalizedPath(url)
+        if selfPath == targetPath { return self }
+        // 대상이 이 디렉토리 하위가 아니면 탐색 중단.
+        guard isDirectory, targetPath.hasPrefix(selfPath + "/") else { return nil }
+
+        await loadChildrenIfNeeded()
+        guard let children else { return nil }
+        for child in children {
+            let childPath = Self.normalizedPath(child.url)
+            if targetPath == childPath || targetPath.hasPrefix(childPath + "/") {
+                if child.isDirectory { child.isExpanded = true }
+                return await child.reveal(to: target)
+            }
+        }
+        return nil
+    }
+
+    /// 경로 비교용 정규화 — 디렉토리 URL 의 trailing slash 를 제거해 prefix 비교를 안정화한다.
+    /// (standardizedFileURL.path 는 디렉토리에 "/" 를 남겨 "a/b/" + "/" 같은 이중 슬래시가 생긴다.)
+    private nonisolated static func normalizedPath(_ u: URL) -> String {
+        var p = u.standardizedFileURL.path(percentEncoded: false)
+        if p.count > 1 && p.hasSuffix("/") { p.removeLast() }
+        return p
     }
 
     // MARK: - 디스크 읽기 (백그라운드)
