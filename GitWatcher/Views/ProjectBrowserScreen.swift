@@ -49,6 +49,10 @@ struct ProjectBrowserScreen: View {
     @State private var historyCommit: GraphCommit?
     /// 선택 커밋의 부모 대비 diff.
     @State private var commitDiff: String?
+    /// 선택 커밋에서 함께 변경된 파일(연관 파일).
+    @State private var commitFiles: [ChangedPath] = []
+    /// 연관 파일 점프 시 유지할 커밋(selection 변경에도 커밋 컨텍스트 보존).
+    @State private var pendingKeepCommit: GraphCommit?
     @State private var loadingHistory = false
 
     private static let sidebarMinWidth: Double = 180
@@ -128,9 +132,15 @@ struct ProjectBrowserScreen: View {
         .task(id: currentPath) { await loadRoot() }
         .task(id: selection) { await loadFile() }
         .onChange(of: selection) { _, newValue in
-            // 파일이 바뀌면 히스토리 선택을 워킹 버전으로 리셋하고, 필요 시 새 히스토리를 로드.
-            historyCommit = nil
-            commitDiff = nil
+            // 연관 파일 점프면 커밋 컨텍스트를 유지(같은 커밋의 그 파일 diff), 아니면 워킹 버전으로 리셋.
+            if let keep = pendingKeepCommit {
+                pendingKeepCommit = nil
+                selectHistoryCommit(keep)
+            } else {
+                historyCommit = nil
+                commitDiff = nil
+                commitFiles = []
+            }
             Task { await loadHistoryIfNeeded() }
             // 변경 파일/트리에서 선택된 파일을 트리에서 펼쳐 위치를 확정하고 스크롤.
             guard let url = newValue, let root, !isDirectory(url) else { return }
@@ -276,13 +286,17 @@ struct ProjectBrowserScreen: View {
                 ResizableDivider(
                     width: $historyWidth,
                     minWidth: Self.historyMinWidth,
-                    maxWidth: Self.historyMaxWidth
+                    maxWidth: Self.historyMaxWidth,
+                    reversed: true   // 패널이 분할선의 오른쪽 → 드래그 부호 반전
                 )
                 FileHistoryPanel(
                     history: fileHistory,
                     loading: loadingHistory,
                     selectedSHA: historyCommit?.sha,
-                    onSelect: { selectHistoryCommit($0) }
+                    commitFiles: commitFiles,
+                    currentRelPath: selection.map { relativePath($0) },
+                    onSelect: { selectHistoryCommit($0) },
+                    onSelectFile: { jumpToRelatedFile($0) }
                 )
                 .frame(width: historyWidth)
             }
@@ -332,19 +346,32 @@ struct ProjectBrowserScreen: View {
         fileHistory = h
     }
 
-    /// 히스토리에서 커밋 선택 → 부모 대비 diff 로드. nil 이면 워킹 버전으로 복귀.
+    /// 히스토리에서 커밋 선택 → 부모 대비 diff + 그 커밋의 연관 파일 로드. nil 이면 워킹 버전으로 복귀.
     private func selectHistoryCommit(_ commit: GraphCommit?) {
         historyCommit = commit
         commitDiff = nil
+        commitFiles = []
         guard let commit, let url = selection else { return }
         let path = currentPath
         let rel = relativePath(url)
         Task {
-            let d = (try? await GitService.commitFileDiff(repoPath: path, sha: commit.sha, path: rel)) ?? ""
+            async let diffTask = (try? await GitService.commitFileDiff(repoPath: path, sha: commit.sha, path: rel)) ?? ""
+            async let filesTask = (try? await GitService.commitFiles(repoPath: path, sha: commit.sha)) ?? []
+            let (d, f) = await (diffTask, filesTask)
             // 로드 도중 다른 커밋을 골랐으면 폐기.
             guard historyCommit?.sha == commit.sha else { return }
             commitDiff = d
+            commitFiles = f
         }
+    }
+
+    /// 연관 파일 클릭 → 같은 커밋 컨텍스트를 유지한 채 그 파일로 selection 전환(트리 reveal 도 함께).
+    private func jumpToRelatedFile(_ relPath: String) {
+        let full = (currentPath as NSString).appendingPathComponent(relPath)
+        let url = URL(fileURLWithPath: full).standardizedFileURL
+        guard url != selection else { return }
+        pendingKeepCommit = historyCommit
+        selection = url
     }
 
     private static let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "heic", "webp"]
