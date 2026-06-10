@@ -39,10 +39,24 @@ struct ProjectBrowserScreen: View {
     /// 마크다운 파일을 렌더링 프리뷰로 볼지(코드 보기와 토글). 기본 프리뷰.
     @State private var markdownPreview = true
 
+    /// 우측에 파일 변경 히스토리 타임라인을 표시할지 — 영속화.
+    @AppStorage("ProjectBrowser.showHistory") private var showHistory = false
+    /// 히스토리 패널 폭 — 영속화.
+    @AppStorage("ProjectBrowser.historyWidth") private var historyWidth: Double = 280
+    /// 선택 파일의 변경 커밋 목록(log --follow).
+    @State private var fileHistory: [GraphCommit] = []
+    /// 히스토리에서 선택된 커밋. nil = 현재 워킹 버전(디스크).
+    @State private var historyCommit: GraphCommit?
+    /// 선택 커밋의 부모 대비 diff.
+    @State private var commitDiff: String?
+    @State private var loadingHistory = false
+
     private static let sidebarMinWidth: Double = 180
     private static let sidebarMaxWidth: Double = 640
     private static let changesMinHeight: Double = 80
     private static let changesMaxHeight: Double = 600
+    private static let historyMinWidth: Double = 200
+    private static let historyMaxWidth: Double = 480
 
     private static let maxBytes = 2_000_000   // 2MB 초과 텍스트는 표시 생략
 
@@ -86,7 +100,7 @@ struct ProjectBrowserScreen: View {
                     fileHeader(url)
                     Divider()
                 }
-                fileViewer
+                rightContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
@@ -114,6 +128,10 @@ struct ProjectBrowserScreen: View {
         .task(id: currentPath) { await loadRoot() }
         .task(id: selection) { await loadFile() }
         .onChange(of: selection) { _, newValue in
+            // 파일이 바뀌면 히스토리 선택을 워킹 버전으로 리셋하고, 필요 시 새 히스토리를 로드.
+            historyCommit = nil
+            commitDiff = nil
+            Task { await loadHistoryIfNeeded() }
             // 변경 파일/트리에서 선택된 파일을 트리에서 펼쳐 위치를 확정하고 스크롤.
             guard let url = newValue, let root, !isDirectory(url) else { return }
             Task {
@@ -124,6 +142,9 @@ struct ProjectBrowserScreen: View {
                 try? await Task.sleep(for: .milliseconds(250))
                 scrollTarget = node.url
             }
+        }
+        .onChange(of: showHistory) { _, on in
+            if on { Task { await loadHistoryIfNeeded() } }
         }
     }
 
@@ -195,6 +216,15 @@ struct ProjectBrowserScreen: View {
                     selection: $markdownPreview
                 )
             }
+            Button {
+                showHistory.toggle()
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 13))
+                    .foregroundStyle(showHistory ? Theme.accent : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Toggle file history")
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(Color.primary.opacity(0.03))
@@ -236,8 +266,85 @@ struct ProjectBrowserScreen: View {
         }
     }
 
+    /// 우측 영역 — 히스토리 토글이 켜져 있고 파일이 선택돼 있으면 [뷰어 | 타임라인] 으로 분할.
+    @ViewBuilder
+    private var rightContent: some View {
+        if showHistory, let url = selection, !isDirectory(url) {
+            HStack(spacing: 0) {
+                mainViewer
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ResizableDivider(
+                    width: $historyWidth,
+                    minWidth: Self.historyMinWidth,
+                    maxWidth: Self.historyMaxWidth
+                )
+                FileHistoryPanel(
+                    history: fileHistory,
+                    loading: loadingHistory,
+                    selectedSHA: historyCommit?.sha,
+                    onSelect: { selectHistoryCommit($0) }
+                )
+                .frame(width: historyWidth)
+            }
+        } else {
+            mainViewer
+        }
+    }
+
+    /// 좌측 뷰어 — 히스토리 커밋이 선택돼 있으면 그 커밋 diff, 아니면 현재 워킹 버전.
+    @ViewBuilder
+    private var mainViewer: some View {
+        if historyCommit != nil {
+            if let diff = commitDiff {
+                DiffWebView(content: .diff(diff))
+            } else {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            fileViewer
+        }
+    }
+
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+    }
+
+    /// 선택 파일의 repo 루트(worktree) 기준 상대경로 — git 명령에 넘길 경로.
+    private func relativePath(_ url: URL) -> String {
+        let abs = url.path(percentEncoded: false)
+        let prefix = currentPath.hasSuffix("/") ? currentPath : currentPath + "/"
+        return abs.hasPrefix(prefix) ? String(abs.dropFirst(prefix.count)) : abs
+    }
+
+    /// 히스토리 토글이 켜져 있을 때만 선택 파일의 변경 커밋 목록을 로드.
+    private func loadHistoryIfNeeded() async {
+        guard showHistory, let url = selection, !isDirectory(url) else {
+            fileHistory = []
+            return
+        }
+        let path = currentPath
+        let rel = relativePath(url)
+        loadingHistory = true
+        defer { loadingHistory = false }
+        let h = (try? await GitService.fileHistory(repoPath: path, sha: "HEAD", path: rel)) ?? []
+        // 로드 도중 선택이 또 바뀌었으면 결과 폐기.
+        guard url == selection else { return }
+        fileHistory = h
+    }
+
+    /// 히스토리에서 커밋 선택 → 부모 대비 diff 로드. nil 이면 워킹 버전으로 복귀.
+    private func selectHistoryCommit(_ commit: GraphCommit?) {
+        historyCommit = commit
+        commitDiff = nil
+        guard let commit, let url = selection else { return }
+        let path = currentPath
+        let rel = relativePath(url)
+        Task {
+            let d = (try? await GitService.commitFileDiff(repoPath: path, sha: commit.sha, path: rel)) ?? ""
+            // 로드 도중 다른 커밋을 골랐으면 폐기.
+            guard historyCommit?.sha == commit.sha else { return }
+            commitDiff = d
+        }
     }
 
     private static let imageExts: Set<String> = ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "heic", "webp"]
