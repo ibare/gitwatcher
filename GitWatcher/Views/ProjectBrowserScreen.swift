@@ -39,8 +39,8 @@ struct ProjectBrowserScreen: View {
     /// 마크다운 파일을 렌더링 프리뷰로 볼지(코드 보기와 토글). 기본 프리뷰.
     @State private var markdownPreview = true
 
-    /// 우측에 파일 변경 히스토리 타임라인을 표시할지 — 영속화.
-    @AppStorage("ProjectBrowser.showHistory") private var showHistory = false
+    /// 우측에 파일 변경 히스토리 타임라인을 표시할지 — 기본 켜짐, 영속화(좁은 화면용으로 끌 수 있음).
+    @AppStorage("ProjectBrowser.showHistory") private var showHistory = true
     /// 히스토리 패널 폭 — 영속화.
     @AppStorage("ProjectBrowser.historyWidth") private var historyWidth: Double = 280
     /// 선택 파일의 변경 커밋 목록(log --follow).
@@ -49,6 +49,8 @@ struct ProjectBrowserScreen: View {
     @State private var historyCommit: GraphCommit?
     /// 선택 커밋의 부모 대비 diff.
     @State private var commitDiff: String?
+    /// 선택 커밋의 전체 메시지 본문(제목 제외).
+    @State private var commitBody: String = ""
     /// 선택 커밋에서 함께 변경된 파일(연관 파일).
     @State private var commitFiles: [ChangedPath] = []
     /// 연관 파일 점프 시 유지할 커밋(selection 변경에도 커밋 컨텍스트 보존).
@@ -139,6 +141,7 @@ struct ProjectBrowserScreen: View {
             } else {
                 historyCommit = nil
                 commitDiff = nil
+                commitBody = ""
                 commitFiles = []
             }
             Task { await loadHistoryIfNeeded() }
@@ -292,7 +295,8 @@ struct ProjectBrowserScreen: View {
                 FileHistoryPanel(
                     history: fileHistory,
                     loading: loadingHistory,
-                    selectedSHA: historyCommit?.sha,
+                    selectedCommit: historyCommit,
+                    commitBody: commitBody,
                     commitFiles: commitFiles,
                     currentRelPath: selection.map { relativePath($0) },
                     onSelect: { selectHistoryCommit($0) },
@@ -350,6 +354,7 @@ struct ProjectBrowserScreen: View {
     private func selectHistoryCommit(_ commit: GraphCommit?) {
         historyCommit = commit
         commitDiff = nil
+        commitBody = ""
         commitFiles = []
         guard let commit, let url = selection else { return }
         let path = currentPath
@@ -357,11 +362,13 @@ struct ProjectBrowserScreen: View {
         Task {
             async let diffTask = (try? await GitService.commitFileDiff(repoPath: path, sha: commit.sha, path: rel)) ?? ""
             async let filesTask = (try? await GitService.commitFiles(repoPath: path, sha: commit.sha)) ?? []
-            let (d, f) = await (diffTask, filesTask)
+            async let bodyTask = (try? await GitService.commitBody(repoPath: path, sha: commit.sha)) ?? ""
+            let (d, f, b) = await (diffTask, filesTask, bodyTask)
             // 로드 도중 다른 커밋을 골랐으면 폐기.
             guard historyCommit?.sha == commit.sha else { return }
             commitDiff = d
             commitFiles = f
+            commitBody = b
         }
     }
 

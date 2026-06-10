@@ -5,8 +5,8 @@
 //  파일 뷰어 우측의 변경 히스토리 타임라인(GitLens 스타일).
 //  선택 파일이 변경된 커밋들을 시간순으로 보여주고, 커밋을 고르면 부모 대비 diff 로
 //  좌측 뷰어가 전환된다. 맨 위 "Working tree" 는 현재 디스크 버전(히스토리 해제).
-//  커밋 선택 시 하단에 그 커밋에서 함께 변경된 파일 목록을 제공 — 클릭하면 같은 커밋
-//  컨텍스트로 그 파일로 점프해 히스토리 탐색을 이어간다.
+//  커밋 선택 시 그 커밋의 전체 메시지(COMMIT)와 함께 변경된 파일(FILES IN COMMIT)을
+//  하단에 제공 — 파일을 클릭하면 같은 커밋 컨텍스트로 점프해 탐색을 이어간다.
 //
 
 import SwiftUI
@@ -14,8 +14,10 @@ import SwiftUI
 struct FileHistoryPanel: View {
     let history: [GraphCommit]
     let loading: Bool
-    /// 선택된 커밋 sha. nil = Working tree(현재 디스크 버전).
-    let selectedSHA: String?
+    /// 선택된 커밋. nil = Working tree(현재 디스크 버전).
+    let selectedCommit: GraphCommit?
+    /// 선택 커밋의 전체 메시지 본문(제목 제외).
+    let commitBody: String
     /// 선택 커밋에서 함께 변경된 파일들(연관 파일).
     let commitFiles: [ChangedPath]
     /// 현재 보고 있는 파일의 repo 상대경로 — 연관 파일 목록에서 강조용.
@@ -31,9 +33,13 @@ struct FileHistoryPanel: View {
             Divider().opacity(0.5)
             historyContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if selectedSHA != nil && !commitFiles.isEmpty {
+            if let commit = selectedCommit {
                 Divider().opacity(0.5)
-                commitFilesSection
+                commitDetail(commit)
+                if !commitFiles.isEmpty {
+                    Divider().opacity(0.5)
+                    commitFilesSection
+                }
             }
         }
         .background(Theme.editorSidebar)
@@ -80,8 +86,10 @@ struct FileHistoryPanel: View {
         }
     }
 
+    private var isWorkingSelected: Bool { selectedCommit == nil }
+
     private var workingRow: some View {
-        let selected = selectedSHA == nil
+        let selected = isWorkingSelected
         return HStack(spacing: 6) {
             Image(systemName: "pencil.line")
                 .font(.system(size: 11))
@@ -101,7 +109,7 @@ struct FileHistoryPanel: View {
     }
 
     private func commitRow(_ c: GraphCommit) -> some View {
-        let selected = selectedSHA == c.sha
+        let selected = selectedCommit?.sha == c.sha
         return VStack(alignment: .leading, spacing: 2) {
             Text(c.subject)
                 .font(.system(size: 12))
@@ -133,6 +141,43 @@ struct FileHistoryPanel: View {
             .fill(selected ? Color.accentColor : Color.clear)
     }
 
+    // MARK: 커밋 상세 (전체 메시지 + 메타)
+
+    private func commitDetail(_ c: GraphCommit) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("COMMIT")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.editorText.opacity(0.6))
+            Text(c.subject)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.editorText)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            if !commitBody.isEmpty {
+                ScrollView {
+                    Text(commitBody)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.editorText.opacity(0.7))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 140)
+            }
+            HStack(spacing: 5) {
+                Text(c.author).lineLimit(1)
+                Text("·")
+                Text(c.shortSHA).monospaced()
+                Text("·")
+                Text(c.date.formatted(date: .abbreviated, time: .shortened)).lineLimit(1)
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(Theme.editorText.opacity(0.55))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     // MARK: 연관 파일 (이 커밋에서 함께 변경된 파일)
 
     private var commitFilesSection: some View {
@@ -158,16 +203,20 @@ struct FileHistoryPanel: View {
 
     private func fileRow(_ file: ChangedPath) -> some View {
         let isCurrent = file.path == currentRelPath
+        let nameColor = isCurrent ? Theme.accent : Theme.editorText
+        // 디렉토리는 보조 정보 — 파일명과 확실히 구분되도록 톤다운.
+        let dirColor = (isCurrent ? Theme.accent : Theme.editorText).opacity(0.45)
         return HStack(spacing: 6) {
             Image(systemName: file.change.symbolName)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(file.change.tint)
                 .frame(width: 12)
-            Text(file.fileName)
-                .font(.system(size: 11, weight: isCurrent ? .semibold : .regular))
-                .foregroundStyle(isCurrent ? Theme.accent : Theme.editorText)
+            (Text(Self.directoryPrefix(file.path)).foregroundStyle(dirColor)
+             + Text(file.fileName).foregroundStyle(nameColor)
+                .fontWeight(isCurrent ? .semibold : .regular))
+                .font(.system(size: 11))
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.head)   // 앞쪽(디렉토리) 말줄임 — 파일명 보존
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
@@ -180,5 +229,11 @@ struct FileHistoryPanel: View {
         .contentShape(Rectangle())
         .onTapGesture { onSelectFile(file.path) }
         .help(file.path)
+    }
+
+    /// "src/app/main.swift" → "src/app/" (루트 파일이면 빈 문자열).
+    static func directoryPrefix(_ path: String) -> String {
+        let dir = (path as NSString).deletingLastPathComponent
+        return dir.isEmpty ? "" : dir + "/"
     }
 }
